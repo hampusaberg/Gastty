@@ -17,6 +17,27 @@ final class Session {
     /// OSC-title escapes from the shell will be ignored when this is true.
     var titleLocked: Bool = false
 
+    /// Pending OSC title update scheduled for application after the debounce
+    /// window. Cancelled if a newer title arrives before it fires.
+    private var pendingTitleUpdate: DispatchWorkItem?
+
+    /// Schedule an OSC-driven title update. Multiple updates arriving in
+    /// rapid succession (typical from zsh themes that set both `user@host`
+    /// and cwd on every prompt) collapse into the final one.
+    func scheduleTitleUpdate(to newTitle: String,
+                             controller: TerminalWindowController) {
+        pendingTitleUpdate?.cancel()
+        let item = DispatchWorkItem { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            if self.titleLocked { return }
+            self.title = newTitle
+            controller.refreshSessionTitle(self)
+        }
+        pendingTitleUpdate = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(80),
+                                      execute: item)
+    }
+
     init(runtime: GhosttyRuntime, title: String = "Gastty", command: String? = nil) {
         let surface = SurfaceHostView(runtime: runtime, command: command)
         self.rootNode = SplitNode(.leaf(surface))

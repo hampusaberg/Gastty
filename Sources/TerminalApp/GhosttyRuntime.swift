@@ -277,8 +277,12 @@ final class GhosttyRuntime: ObservableObject {
         if session.titleLocked { return }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        session.title = trimmed
-        controller.refreshSessionTitle(session)
+        // Debounce: shells (zsh themes, oh-my-zsh) often fire multiple OSC 0/2
+        // sequences in quick succession on every prompt — one for `user@host`,
+        // one for cwd. Without debouncing the user sees the tab title
+        // flicker through the intermediate values. We coalesce updates that
+        // arrive within 80ms and only apply the latest.
+        session.scheduleTitleUpdate(to: trimmed, controller: controller)
     }
 
     /// Re-read all config sources and push the result to every live surface.
