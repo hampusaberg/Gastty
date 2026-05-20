@@ -137,7 +137,7 @@ jobs:
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: Gastty-${{ steps.tag.outputs.name }}.dmg
           generate_release_notes: true
