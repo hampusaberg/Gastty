@@ -14,6 +14,11 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
     private let backgroundEffect = NSVisualEffectView()
     private let chromeSeparator = NSView()
     private let searchBar = SearchBar()
+    private let sidebar = ConnectionsSidebar()
+    private let sidebarSeparator = NSView()
+    private var sidebarWidthConstraint: NSLayoutConstraint!
+    private let sidebarOpenWidth: CGFloat = 240
+    private(set) var isSidebarVisible: Bool = false
     private var activeSurfaceConstraints: [NSLayoutConstraint] = []
     private let restoreState: PersistedWindowState?
 
@@ -88,11 +93,39 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
         surfaceContainer.layer?.backgroundColor = NSColor.clear.cgColor
         root.addSubview(surfaceContainer)
 
+        // Connections sidebar lives on the left of the surface area, below
+        // the chrome separator. Width animates between 0 (hidden) and
+        // `sidebarOpenWidth` (shown via ⌘S). A 1px vertical rule on its
+        // trailing edge gives the surface a clean visual boundary.
+        sidebar.translatesAutoresizingMaskIntoConstraints = false
+        sidebar.isHidden = true
+        sidebar.onPick = { [weak self] connection in
+            guard let self else { return }
+            self.addNewSession(title: connection.displayName, command: connection.sshCommand)
+        }
+        sidebar.onManageConnections = {
+            // Route through the responder chain rather than casting
+            // NSApp.delegate — the SwiftUI `NSApplicationDelegateAdaptor`
+            // wraps the real AppDelegate, so the direct cast can return nil.
+            NSApp.sendAction(#selector(AppDelegate.showConnectionsWindow(_:)),
+                             to: nil, from: nil)
+        }
+        root.addSubview(sidebar)
+
+        sidebarSeparator.translatesAutoresizingMaskIntoConstraints = false
+        sidebarSeparator.wantsLayer = true
+        sidebarSeparator.layer?.backgroundColor =
+            NSColor.separatorColor.withAlphaComponent(0.4).cgColor
+        sidebarSeparator.isHidden = true
+        root.addSubview(sidebarSeparator)
+
         // `contentLayoutGuide` is the area below the title bar — by anchoring
         // tabBar.topAnchor to it (instead of root.topAnchor) the tab bar
         // sits below the system's title-bar drag zone even though
         // contentView technically extends to the top.
         let contentLayout = window.contentLayoutGuide as? NSLayoutGuide
+
+        sidebarWidthConstraint = sidebar.widthAnchor.constraint(equalToConstant: 0)
 
         NSLayoutConstraint.activate([
             backgroundEffect.topAnchor.constraint(equalTo: root.topAnchor),
@@ -109,8 +142,18 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
             chromeSeparator.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             chromeSeparator.heightAnchor.constraint(equalToConstant: 1),
 
+            sidebar.topAnchor.constraint(equalTo: chromeSeparator.bottomAnchor),
+            sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            sidebar.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            sidebarWidthConstraint,
+
+            sidebarSeparator.topAnchor.constraint(equalTo: sidebar.topAnchor),
+            sidebarSeparator.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor),
+            sidebarSeparator.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
+            sidebarSeparator.widthAnchor.constraint(equalToConstant: 1),
+
             surfaceContainer.topAnchor.constraint(equalTo: chromeSeparator.bottomAnchor),
-            surfaceContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            surfaceContainer.leadingAnchor.constraint(equalTo: sidebarSeparator.trailingAnchor),
             surfaceContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             surfaceContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
         ])
@@ -189,6 +232,30 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
     func activateTab(at index: Int) { tabBar.activate(index: index) }
     func activateLastTab() { tabBar.activate(index: tabBar.count - 1) }
     var sessionCount: Int { tabBar.count }
+
+    // MARK: - Connections sidebar
+
+    /// Toggle the saved-connections sidebar on the left of the surface area.
+    /// Bound to ⌘S in the View menu.
+    func toggleConnectionsSidebar() {
+        isSidebarVisible.toggle()
+        if isSidebarVisible {
+            sidebar.isHidden = false
+            sidebarSeparator.isHidden = false
+        }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.18
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            sidebarWidthConstraint.animator().constant =
+                isSidebarVisible ? sidebarOpenWidth : 0
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            if !self.isSidebarVisible {
+                self.sidebar.isHidden = true
+                self.sidebarSeparator.isHidden = true
+            }
+        })
+    }
 
     // MARK: - TabBarDelegate
 
@@ -308,6 +375,11 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
         // Tab bar tracks the same chrome color. The chromeSeparator and
         // title bar both blend with it for the uniform top-of-window look.
         tabBar.layer?.backgroundColor = chromeColor.cgColor
+
+        // Connections sidebar shares the chrome tint so it reads as part of
+        // the same surrounding shell — and so the behind-window blur shows
+        // through it at the same opacity as the tab bar.
+        sidebar.applyChromeColor(chromeColor)
 
         // Blur: 4 discrete materials. NSVisualEffectView doesn't expose a
         // numeric blur radius, so a slider was fake — these are the actual

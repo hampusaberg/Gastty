@@ -218,6 +218,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.orderFrontRegardless()
     }
 
+    /// ⌘S — show or hide the saved-connections sidebar on the keyed window.
+    @objc func toggleConnectionsSidebar(_ sender: Any?) {
+        guard let controller = currentTerminalController() else { return }
+        controller.toggleConnectionsSidebar()
+    }
+
     @objc func showQuickConnect(_ sender: Any?) {
         if quickConnectPanel == nil {
             quickConnectPanel = QuickConnectPanel(
@@ -319,6 +325,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ---- View
         let viewItem = NSMenuItem(); main.addItem(viewItem)
         let viewMenu = NSMenu(title: "View"); viewItem.submenu = viewMenu
+        let sidebarItem = viewMenu.addItem(withTitle: "Toggle Connections Sidebar",
+                                           action: #selector(toggleConnectionsSidebar(_:)),
+                                           keyEquivalent: "s")
+        sidebarItem.target = self
+        viewMenu.addItem(.separator())
         viewMenu.addItem(withTitle: "Zoom In",
                          action: #selector(SurfaceHostView.zoomIn(_:)), keyEquivalent: "+")
         viewMenu.addItem(withTitle: "Zoom Out",
