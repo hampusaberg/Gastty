@@ -169,7 +169,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
     func closeActiveSession() {
         guard let active = tabBar.activeSession else { return }
         tabBar.remove(session: active)
-        if tabBar.count == 0 {
+        if tabBar.isEmpty {
             window?.performClose(nil)
         }
     }
@@ -199,7 +199,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
 
     func tabBar(_ bar: TabBarView, didRequestCloseOf session: Session) {
         bar.remove(session: session)
-        if bar.count == 0 {
+        if bar.isEmpty {
             window?.performClose(nil)
         }
     }
@@ -276,7 +276,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
         let empty = session.remove(surface: host)
         if empty {
             tabBar.remove(session: session)
-            if tabBar.count == 0 { window?.performClose(nil) }
+            if tabBar.isEmpty { window?.performClose(nil) }
         } else if tabBar.activeSession === session {
             installSurfaceView(for: session)
         }

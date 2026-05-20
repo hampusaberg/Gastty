@@ -53,11 +53,11 @@ extension SurfaceHostView {
 
     private func modsFrom(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
         var raw: UInt32 = 0
-        if flags.contains(.shift)   { raw |= GHOSTTY_MODS_SHIFT.rawValue }
+        if flags.contains(.shift) { raw |= GHOSTTY_MODS_SHIFT.rawValue }
         if flags.contains(.control) { raw |= GHOSTTY_MODS_CTRL.rawValue }
-        if flags.contains(.option)  { raw |= GHOSTTY_MODS_ALT.rawValue }
+        if flags.contains(.option) { raw |= GHOSTTY_MODS_ALT.rawValue }
         if flags.contains(.command) { raw |= GHOSTTY_MODS_SUPER.rawValue }
-        if flags.contains(.capsLock){ raw |= GHOSTTY_MODS_CAPS.rawValue }
+        if flags.contains(.capsLock) { raw |= GHOSTTY_MODS_CAPS.rawValue }
         return ghostty_input_mods_e(rawValue: raw)
     }
 
@@ -88,7 +88,7 @@ extension SurfaceHostView {
         forwardMouseButton(event: event, button: GHOSTTY_MOUSE_RIGHT, state: GHOSTTY_MOUSE_RELEASE)
     }
 
-    override func mouseMoved(with event: NSEvent)   { forwardMousePos(event: event) }
+    override func mouseMoved(with event: NSEvent) { forwardMousePos(event: event) }
     override func mouseDragged(with event: NSEvent) { forwardMousePos(event: event) }
     override func rightMouseDragged(with event: NSEvent) { forwardMousePos(event: event) }
 

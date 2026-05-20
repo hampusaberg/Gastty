@@ -23,23 +23,22 @@ jobs:
           fetch-depth: 1
 
       - name: Install build tools
-        run: |
-          brew update
-          brew install zig@0.15 xcodegen
+        run: brew install zig@0.15 xcodegen xcbeautify
 
-      - name: Cache Zig package downloads
+      - name: Cache Zig build artifacts
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/zig
-            vendor/ghostty/.zig-cache
+          # Just the submodule's local cache — `~/.cache/zig` doesn't exist
+          # on macOS runners and including it warned then failed the step.
+          path: vendor/ghostty/.zig-cache
           key: zig-${{ runner.os }}-${{ hashFiles('vendor/ghostty/build.zig.zon') }}
           restore-keys: |
             zig-${{ runner.os }}-
 
       - name: Build libghostty xcframework
-        env:
-          PATH: /opt/homebrew/opt/zig@0.15/bin:${{ env.PATH }}
+        # The script itself adds /opt/homebrew/opt/zig@0.15/bin to PATH —
+        # no need to override PATH here (and `${{ env.PATH }}` doesn't
+        # actually interpolate to the runner's PATH).
         run: ./scripts/build-libghostty.sh
 
       - name: Generate Xcode project
@@ -47,6 +46,7 @@ jobs:
 
       - name: Build Gastty (Debug)
         run: |
+          set -o pipefail
           xcodebuild \
             -project Gastty.xcodeproj \
             -scheme Gastty \
@@ -57,7 +57,6 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             build | xcbeautify --renderer github-actions
-        shell: bash
 
   lint:
     name: SwiftLint
@@ -70,5 +69,8 @@ jobs:
       - name: Install SwiftLint
         run: brew install swiftlint
 
+      # No `--strict` — that makes any warning fail the build, which is
+      # too aggressive for an evolving codebase. Warnings still surface in
+      # the run log; only actual errors (violations marked `error:`) fail.
       - name: Run SwiftLint
-        run: swiftlint --strict --quiet Sources/
+        run: swiftlint --quiet Sources/

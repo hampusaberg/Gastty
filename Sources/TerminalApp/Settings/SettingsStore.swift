@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 
 /// Process-wide settings store. Persists `AppSettings` to JSON and a sibling
 /// `runtime.conf` (Ghostty config syntax) that GhosttyRuntime loads.

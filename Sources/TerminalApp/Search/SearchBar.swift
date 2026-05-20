@@ -14,8 +14,8 @@ final class SearchBar: NSView, NSTextFieldDelegate {
 
     weak var surface: SurfaceHostView?
 
-    var total: Int = 0     { didSet { refreshCount() } }
-    var selected: Int = 0  { didSet { refreshCount() } }
+    var total: Int = 0 { didSet { refreshCount() } }
+    var selected: Int = 0 { didSet { refreshCount() } }
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: 32)

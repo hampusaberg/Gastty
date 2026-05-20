@@ -127,13 +127,14 @@ final class TabBarView: NSView {
         delegate?.tabBar(self, didActivate: session)
     }
 
-    func activateNext()     { advance(by: +1) }
+    func activateNext() { advance(by: +1) }
     func activatePrevious() { advance(by: -1) }
     func activate(index: Int) {
         guard sessions.indices.contains(index) else { return }
         setActive(session: sessions[index])
     }
     var count: Int { sessions.count }
+    var isEmpty: Bool { sessions.isEmpty }
 
     private func advance(by delta: Int) {
         guard !sessions.isEmpty, let current = activeSession,
@@ -300,6 +301,6 @@ final class TabBarView: NSView {
     // MARK: - Called by TabItemView
 
     func activate(session: Session) { setActive(session: session) }
-    func close(session: Session)    { delegate?.tabBar(self, didRequestCloseOf: session) }
-    func duplicate(session: Session){ delegate?.tabBar(self, didRequestDuplicateOf: session) }
+    func close(session: Session) { delegate?.tabBar(self, didRequestCloseOf: session) }
+    func duplicate(session: Session) { delegate?.tabBar(self, didRequestDuplicateOf: session) }
 }

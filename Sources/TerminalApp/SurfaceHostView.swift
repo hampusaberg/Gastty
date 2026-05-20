@@ -1,6 +1,6 @@
 import AppKit
-import QuartzCore
 import GhosttyKit
+import QuartzCore
 
 /// An NSView that hosts a single `ghostty_surface_t`.
 ///
@@ -174,12 +174,12 @@ final class SurfaceHostView: NSView {
         _ = ghostty_surface_binding_action(surface, action, UInt(action.lengthOfBytes(using: .utf8)))
     }
 
-    @objc func copy(_ sender: Any?)  { perform(action: "copy_to_clipboard") }
+    @objc func copy(_ sender: Any?) { perform(action: "copy_to_clipboard") }
     @objc func paste(_ sender: Any?) { perform(action: "paste_from_clipboard") }
     @objc override func selectAll(_ sender: Any?) { perform(action: "select_all") }
 
-    @objc func zoomIn(_ sender: Any?)    { perform(action: "increase_font_size:1") }
-    @objc func zoomOut(_ sender: Any?)   { perform(action: "decrease_font_size:1") }
+    @objc func zoomIn(_ sender: Any?) { perform(action: "increase_font_size:1") }
+    @objc func zoomOut(_ sender: Any?) { perform(action: "decrease_font_size:1") }
     @objc func zoomReset(_ sender: Any?) { perform(action: "reset_font_size") }
 }
 

@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 
 /// Process-wide store of saved connections.
 ///

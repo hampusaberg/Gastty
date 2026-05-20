@@ -65,9 +65,9 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate {
         content.addSubview(toolbar)
 
         for (button, title, action) in [
-            (addButton,    "Add",     #selector(add(_:))),
-            (editButton,   "Edit",    #selector(editSelected(_:))),
-            (removeButton, "Remove",  #selector(removeSelected(_:))),
+            (addButton, "Add", #selector(add(_:))),
+            (editButton, "Edit", #selector(editSelected(_:))),
+            (removeButton, "Remove", #selector(removeSelected(_:))),
         ] {
             button.bezelStyle = .rounded
             button.title = title
@@ -186,10 +186,10 @@ enum ConnectionEditor {
         stack.spacing = 6
         stack.frame = NSRect(x: 0, y: 0, width: 320, height: 180)
 
-        let nameField     = labeledField(stack, label: "Name",          value: existing?.name ?? "")
-        let userField     = labeledField(stack, label: "User",          value: existing?.user ?? NSUserName())
-        let hostField     = labeledField(stack, label: "Host",          value: existing?.host ?? "")
-        let portField     = labeledField(stack, label: "Port",          value: String(existing?.port ?? 22))
+        let nameField     = labeledField(stack, label: "Name", value: existing?.name ?? "")
+        let userField     = labeledField(stack, label: "User", value: existing?.user ?? NSUserName())
+        let hostField     = labeledField(stack, label: "Host", value: existing?.host ?? "")
+        let portField     = labeledField(stack, label: "Port", value: String(existing?.port ?? 22))
         let identityField = labeledField(stack, label: "Identity file", value: existing?.identityFile ?? "")
 
         alert.accessoryView = stack

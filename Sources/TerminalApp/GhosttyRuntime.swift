@@ -1,6 +1,6 @@
+import AppKit
 import Foundation
 import GhosttyKit
-import AppKit
 
 /// Owns the singleton `ghostty_app_t` and the loaded config.
 ///

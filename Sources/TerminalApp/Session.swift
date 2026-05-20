@@ -41,8 +41,7 @@ final class Session {
 
     private static func buildTree(_ persisted: PersistedSplitNode,
                                   runtime: GhosttyRuntime)
-        -> (SplitNode, SurfaceHostView)
-    {
+        -> (SplitNode, SurfaceHostView) {
         switch persisted {
         case .leaf(let cwd):
             let surface = SurfaceHostView(runtime: runtime, workingDirectory: cwd)
