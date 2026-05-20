@@ -1,0 +1,27 @@
+## macOS
+.DS_Store
+
+## Build outputs
+build/
+DerivedData/
+.build/
+Frameworks/GhosttyKit.xcframework/
+
+## Generated Xcode project (XcodeGen owns project.yml)
+*.xcodeproj/
+*.xcworkspace/
+
+## Resources copied at build time from vendor/ghostty
+Resources/terminfo/
+Resources/ghostty/shell-integration/
+Resources/ghostty/themes/
+
+## Zig build artifacts under vendor (just in case)
+vendor/ghostty/zig-out/
+vendor/ghostty/zig-cache/
+vendor/ghostty/.zig-cache/
+
+## Editor
+.vscode/
+.idea/
+*.swp
