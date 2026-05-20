@@ -1,4 +1,4 @@
-name: Terminal
+name: Gastty
 options:
   bundleIdPrefix: com.hampusaberg
   deploymentTarget:
@@ -15,12 +15,12 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     ARCHS: "$(ARCHS_STANDARD)"
     MACOSX_DEPLOYMENT_TARGET: "13.0"
-    PRODUCT_NAME: Terminal
+    PRODUCT_NAME: Gastty
 
 packages: {}
 
 targets:
-  Terminal:
+  Gastty:
     type: application
     platform: macOS
     sources:
@@ -40,13 +40,13 @@ targets:
         link: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.hampusaberg.Terminal
+        PRODUCT_BUNDLE_IDENTIFIER: com.hampusaberg.Gastty
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSPrincipalClass: NSApplication
         INFOPLIST_KEY_LSMinimumSystemVersion: "13.0"
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
         INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Hampus Åberg"
-        INFOPLIST_KEY_CFBundleDisplayName: Terminal
+        INFOPLIST_KEY_CFBundleDisplayName: Gastty
         INFOPLIST_KEY_NSHighResolutionCapable: YES
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_ENTITLEMENTS: Sources/TerminalApp/Terminal.entitlements

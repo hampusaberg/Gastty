@@ -17,7 +17,7 @@ final class Session {
     /// OSC-title escapes from the shell will be ignored when this is true.
     var titleLocked: Bool = false
 
-    init(runtime: GhosttyRuntime, title: String = "Terminal", command: String? = nil) {
+    init(runtime: GhosttyRuntime, title: String = "Gastty", command: String? = nil) {
         let surface = SurfaceHostView(runtime: runtime, command: command)
         self.rootNode = SplitNode(.leaf(surface))
         self.activeSurface = surface

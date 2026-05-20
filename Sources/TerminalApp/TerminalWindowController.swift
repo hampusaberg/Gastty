@@ -32,7 +32,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
             backing: .buffered,
             defer: false
         )
-        window.title = "Terminal"
+        window.title = "Gastty"
         window.center()
         window.tabbingMode = .disallowed       // we own tabs now
         window.titleVisibility = .hidden       // hide title text; chrome stays
@@ -135,7 +135,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
     // MARK: - Sessions
 
     @discardableResult
-    func addNewSession(title: String = "Terminal", command: String? = nil) -> Session {
+    func addNewSession(title: String = "Gastty", command: String? = nil) -> Session {
         let session = Session(runtime: runtime, title: title, command: command)
         tabBar.add(session: session, activate: true)
         // setActive (inside tabBar.add) routes through TabBarDelegate, which

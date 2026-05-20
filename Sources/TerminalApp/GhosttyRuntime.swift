@@ -24,7 +24,7 @@ final class GhosttyRuntime: ObservableObject {
     private init() {
         // Initialize the global ghostty state. Must run once per process.
         let argc: UInt = 1
-        var argv: [UnsafeMutablePointer<CChar>?] = [strdup("Terminal")]
+        var argv: [UnsafeMutablePointer<CChar>?] = [strdup("Gastty")]
         _ = argv.withUnsafeMutableBufferPointer { buf -> Int32 in
             ghostty_init(uintptr_t(argc), buf.baseAddress)
         }

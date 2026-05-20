@@ -62,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let version = (info?["CFBundleShortVersionString"] as? String) ?? "0.1.0"
         let build = (info?["CFBundleVersion"] as? String) ?? "1"
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "Terminal",
+            .applicationName: "Gastty",
             .applicationVersion: version,
             .version: build,
             .credits: credits,
@@ -222,7 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ---- App
         let appItem = NSMenuItem(); main.addItem(appItem)
         let appMenu = NSMenu(); appItem.submenu = appMenu
-        appMenu.addItem(withTitle: "About Terminal",
+        appMenu.addItem(withTitle: "About Gastty",
                         action: #selector(showCustomAboutPanel(_:)),
                         keyEquivalent: "").target = self
         appMenu.addItem(.separator())
@@ -231,7 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                            keyEquivalent: ",")
         settingsItem.target = self
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Hide Terminal",
+        appMenu.addItem(withTitle: "Hide Gastty",
                         action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let hideOthers = appMenu.addItem(withTitle: "Hide Others",
                                          action: #selector(NSApplication.hideOtherApplications(_:)),
@@ -241,7 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         action: #selector(NSApplication.unhideAllApplications(_:)),
                         keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit Terminal",
+        appMenu.addItem(withTitle: "Quit Gastty",
                         action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
         // ---- File

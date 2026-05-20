@@ -62,7 +62,7 @@ final class SettingsStore {
     private static func supportDir() -> URL? {
         let fm = FileManager.default
         guard let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.hampusaberg.Terminal"
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.hampusaberg.Gastty"
         let dir = base.appendingPathComponent(bundleID, isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir

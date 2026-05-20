@@ -56,7 +56,7 @@ final class ConnectionStore {
         guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.hampusaberg.Terminal"
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.hampusaberg.Gastty"
         let dir = appSupport.appendingPathComponent(bundleID, isDirectory: true)
         do {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
