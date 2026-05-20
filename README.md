@@ -46,7 +46,7 @@ Working end-to-end. Daily-driver feature-complete with the polish list still ong
 | Saved SSH connections + ⌘K Quick Connect | ✅ |
 | Settings (font, size, cursor, theme, opacity, blur) | ✅ |
 | Theme-aware chrome (top bar matches theme) | ✅ |
-| 18 curated themes + 500 more loadable via user config | ✅ |
+| Themes — 18 in Settings dropdown, 512 bundled (rest loadable via `~/.config/ghostty/config`) | ✅ |
 | OSC tab-title updates from the shell | ✅ |
 | Find in scrollback (⌘F) | ✅ |
 | Custom about panel + app icon | ✅ |
