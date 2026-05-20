@@ -28,6 +28,13 @@ on:
         required: false
         default: 'v0.0.0-dev'
 
+permissions:
+  # `softprops/action-gh-release` creates/updates a release and uploads
+  # assets via the GitHub API, both of which require `contents: write`.
+  # Without this the step fails with 403 "Resource not accessible by
+  # integration".
+  contents: write
+
 jobs:
   build-and-release:
     runs-on: macos-latest
