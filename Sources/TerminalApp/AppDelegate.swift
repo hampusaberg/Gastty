@@ -21,7 +21,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = SettingsStore.shared               // generates runtime.conf early
         _ = GhosttyRuntime.shared              // loads runtime.conf during init
         _ = ConnectionStore.shared
-        openNewWindow(self)
+
+        // Restore previous tabs/splits if we have any. Otherwise open a
+        // fresh window so the app launches with one ready terminal.
+        if let saved = AppPersistence.load(), !saved.windows.isEmpty {
+            restoreWindows(from: saved)
+        } else {
+            openNewWindow(self)
+        }
         NSApp.activate(ignoringOtherApps: true)
 
         // Any change in Settings → regenerate config and broadcast to every
@@ -124,6 +131,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.windowController is TerminalWindowController && window.isVisible
         }
         return !terminalWindowsRemaining
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Snapshot tabs / splits / cwds so the next launch can rebuild
+        // them. Saved to `state.json` in our App Support folder.
+        AppPersistence.save(snapshotState())
+    }
+
+    private func snapshotState() -> PersistedAppState {
+        let windowStates = controllers.compactMap { controller -> PersistedWindowState? in
+            guard controller.window?.isVisible == true else { return nil }
+            let sessions = controller.tabBar.sessions
+            guard !sessions.isEmpty else { return nil }
+            let activeIdx = controller.tabBar.activeSession.flatMap { active in
+                sessions.firstIndex(where: { $0.id == active.id })
+            } ?? 0
+            return PersistedWindowState(
+                frame: controller.window.map { PersistedFrame($0.frame) },
+                sessions: sessions.map { $0.toPersisted() },
+                activeSessionIndex: activeIdx
+            )
+        }
+        return PersistedAppState(windows: windowStates)
+    }
+
+    private func restoreWindows(from state: PersistedAppState) {
+        for windowState in state.windows {
+            let controller = TerminalWindowController(runtime: .shared, restoring: windowState)
+            controllers.append(controller)
+            controller.window?.makeKeyAndOrderFront(nil)
+        }
     }
 
     // MARK: - Window/tab actions (responder-chain entry points)

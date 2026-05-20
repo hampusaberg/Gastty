@@ -25,6 +25,65 @@ final class Session {
         surface.session = self
     }
 
+    /// Restore a session from persisted state. Rebuilds the split tree with
+    /// new SurfaceHostViews — each new shell will land in the saved
+    /// working directory if there was one.
+    init(runtime: GhosttyRuntime, restoring state: PersistedSessionState) {
+        let (root, firstLeaf) = Session.buildTree(state.root, runtime: runtime)
+        self.rootNode = root
+        self.activeSurface = firstLeaf
+        self.title = state.title
+        self.titleLocked = state.titleLocked
+        for leaf in root.allLeaves() {
+            leaf.session = self
+        }
+    }
+
+    private static func buildTree(_ persisted: PersistedSplitNode,
+                                  runtime: GhosttyRuntime)
+        -> (SplitNode, SurfaceHostView)
+    {
+        switch persisted {
+        case .leaf(let cwd):
+            let surface = SurfaceHostView(runtime: runtime, workingDirectory: cwd)
+            return (SplitNode(.leaf(surface)), surface)
+        case .split(let orientation, let first, let second):
+            let (firstNode, firstLeaf) = buildTree(first, runtime: runtime)
+            let (secondNode, _) = buildTree(second, runtime: runtime)
+            let direction: NSUserInterfaceLayoutOrientation =
+                orientation == .horizontal ? .horizontal : .vertical
+            let node = SplitNode(.split(direction: direction,
+                                        first: firstNode,
+                                        second: secondNode))
+            return (node, firstLeaf)
+        }
+    }
+
+    /// Encode this session for persistence.
+    func toPersisted() -> PersistedSessionState {
+        PersistedSessionState(
+            title: title,
+            titleLocked: titleLocked,
+            root: Session.persistedTree(rootNode)
+        )
+    }
+
+    private static func persistedTree(_ node: SplitNode) -> PersistedSplitNode {
+        switch node.kind {
+        case .leaf(let surface):
+            // Prefer the live cwd reported by the shell; fall back to
+            // whatever we were originally spawned with.
+            let cwd = surface.workingDirectory ?? surface.initialWorkingDirectory
+            return .leaf(workingDirectory: cwd)
+        case .split(let direction, let first, let second):
+            let orientation: PersistedOrientation =
+                direction == .horizontal ? .horizontal : .vertical
+            return .split(orientation: orientation,
+                          first: persistedTree(first),
+                          second: persistedTree(second))
+        }
+    }
+
     /// Compatibility shim. The window controller used to hold a single
     /// `surfaceView`; now it asks the session for the active pane's view.
     var surfaceView: SurfaceHostView { activeSurface }

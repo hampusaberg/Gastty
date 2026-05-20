@@ -21,9 +21,20 @@ final class SurfaceHostView: NSView {
     /// session directly from a Quick Connect entry. Read on surface creation.
     let initialCommand: String?
 
-    init(runtime: GhosttyRuntime, command: String? = nil) {
+    /// Optional working directory the new shell should start in. Set when
+    /// restoring a session so a fresh shell lands in the same folder as
+    /// the one that was running before the relaunch.
+    let initialWorkingDirectory: String?
+
+    /// The shell's most recently reported working directory (via OSC 7 /
+    /// libghostty's PWD action). Captured so we can persist it on quit.
+    var workingDirectory: String?
+
+    init(runtime: GhosttyRuntime, command: String? = nil, workingDirectory: String? = nil) {
         self.runtime = runtime
         self.initialCommand = command
+        self.initialWorkingDirectory = workingDirectory
+        self.workingDirectory = workingDirectory
         // Start with a non-zero frame so the CAMetalLayer's bounds are sane
         // before the first render pass. Ghostty's own SurfaceView does the
         // same — without it, the renderer initializes degenerate and stays
@@ -57,17 +68,32 @@ final class SurfaceHostView: NSView {
         cfg.scale_factor = Double(window.backingScaleFactor)
         cfg.userdata = Unmanaged.passUnretained(self).toOpaque()
 
-        if let cmd = initialCommand {
+        // Two optional C strings (command + working_directory) need to stay
+        // valid for the duration of `ghostty_surface_new`. Nested
+        // `withCString` keeps both pointers alive together.
+        let cmd = initialCommand
+        let wd = initialWorkingDirectory
+        switch (cmd, wd) {
+        case (let cmd?, let wd?):
             cmd.withCString { cmdPtr in
-                cfg.command = cmdPtr
-                self.surface = withUnsafePointer(to: &cfg) { ptr in
-                    ghostty_surface_new(app, ptr)
+                wd.withCString { wdPtr in
+                    cfg.command = cmdPtr
+                    cfg.working_directory = wdPtr
+                    self.surface = withUnsafePointer(to: &cfg) { ghostty_surface_new(app, $0) }
                 }
             }
-        } else {
-            self.surface = withUnsafePointer(to: &cfg) { ptr in
-                ghostty_surface_new(app, ptr)
+        case (let cmd?, nil):
+            cmd.withCString { cmdPtr in
+                cfg.command = cmdPtr
+                self.surface = withUnsafePointer(to: &cfg) { ghostty_surface_new(app, $0) }
             }
+        case (nil, let wd?):
+            wd.withCString { wdPtr in
+                cfg.working_directory = wdPtr
+                self.surface = withUnsafePointer(to: &cfg) { ghostty_surface_new(app, $0) }
+            }
+        case (nil, nil):
+            self.surface = withUnsafePointer(to: &cfg) { ghostty_surface_new(app, $0) }
         }
         guard let surface else { return }
 

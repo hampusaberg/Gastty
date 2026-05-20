@@ -9,15 +9,20 @@ import GhosttyKit
 final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabBarDelegate {
 
     private let runtime: GhosttyRuntime
-    private let tabBar = TabBarView()
+    let tabBar = TabBarView()
     private let surfaceContainer = NSView()
     private let backgroundEffect = NSVisualEffectView()
     private let chromeSeparator = NSView()
     private let searchBar = SearchBar()
     private var activeSurfaceConstraints: [NSLayoutConstraint] = []
+    private let restoreState: PersistedWindowState?
 
-    init(runtime: GhosttyRuntime) {
+    /// Initialize and (by default) open one fresh session. Pass `restoring:`
+    /// to rebuild a saved window from `PersistedWindowState` instead — the
+    /// auto-opened first session is skipped.
+    init(runtime: GhosttyRuntime, restoring state: PersistedWindowState? = nil) {
         self.runtime = runtime
+        self.restoreState = state
 
         // `.fullSizeContentView` makes the contentView extend behind the
         // title bar so our NSVisualEffectView reaches all the way to the
@@ -127,7 +132,25 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
         ])
 
         applySettings(SettingsStore.shared.settings)
-        addNewSession()
+
+        if let restoreState {
+            if let frame = restoreState.frame?.rect {
+                window.setFrame(frame, display: false)
+            }
+            for sessionState in restoreState.sessions {
+                let session = Session(runtime: runtime, restoring: sessionState)
+                tabBar.add(session: session, activate: false)
+            }
+            if !restoreState.sessions.isEmpty {
+                let idx = max(0, min(restoreState.activeSessionIndex,
+                                     restoreState.sessions.count - 1))
+                tabBar.activate(index: idx)
+            } else {
+                addNewSession()  // safety: never end up with an empty window
+            }
+        } else {
+            addNewSession()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }

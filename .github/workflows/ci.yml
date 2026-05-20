@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (macOS)
+    runs-on: macos-14
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install build tools
+        run: |
+          brew update
+          brew install zig@0.15 xcodegen
+
+      - name: Cache Zig package downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            vendor/ghostty/.zig-cache
+          key: zig-${{ runner.os }}-${{ hashFiles('vendor/ghostty/build.zig.zon') }}
+          restore-keys: |
+            zig-${{ runner.os }}-
+
+      - name: Build libghostty xcframework
+        env:
+          PATH: /opt/homebrew/opt/zig@0.15/bin:${{ env.PATH }}
+        run: ./scripts/build-libghostty.sh
+
+      - name: Generate Xcode project
+        run: xcodegen
+
+      - name: Build Gastty (Debug)
+        run: |
+          xcodebuild \
+            -project Gastty.xcodeproj \
+            -scheme Gastty \
+            -configuration Debug \
+            -derivedDataPath build/ \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build | xcbeautify --renderer github-actions
+        shell: bash
+
+  lint:
+    name: SwiftLint
+    runs-on: macos-14
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run SwiftLint
+        run: swiftlint --strict --quiet Sources/

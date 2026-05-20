@@ -1,0 +1,24 @@
+version: 2
+updates:
+  # Keep CI / release workflow actions current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+
+  # Submodule updates (vendor/ghostty pinned at a SHA). Dependabot's
+  # `gitsubmodule` ecosystem proposes a bump whenever upstream Ghostty moves
+  # forward; we review and merge deliberately because libghostty's C API is
+  # not yet stable.
+  - package-ecosystem: gitsubmodule
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 1
+    labels:
+      - dependencies
+      - libghostty

@@ -100,6 +100,15 @@ final class GhosttyRuntime: ObservableObject {
                 }
                 return true
 
+            case GHOSTTY_ACTION_PWD:
+                // OSC 7 (or shell integration) reports a directory change.
+                // We capture per-surface so session restore can start the
+                // new shell in the same directory after relaunch.
+                guard let pwdPtr = action.action.pwd.pwd else { return true }
+                let pwd = String(cString: pwdPtr)
+                DispatchQueue.main.async { host.workingDirectory = pwd }
+                return true
+
             case GHOSTTY_ACTION_SET_TITLE, GHOSTTY_ACTION_SET_TAB_TITLE:
                 // Shells fire this via OSC 0/2 ("vim" sets the title to the
                 // filename, ssh to "user@host: ~", zsh themes to the cwd…)

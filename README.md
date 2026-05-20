@@ -1,5 +1,7 @@
 # Gastty
 
+[![CI](https://github.com/icnswe/Gastty/actions/workflows/ci.yml/badge.svg)](https://github.com/icnswe/Gastty/actions/workflows/ci.yml)
+
 A fast, GPU-accelerated macOS terminal built on [libghostty](https://github.com/ghostty-org/ghostty). Native Swift/AppKit shell on top of Ghostty's MIT-licensed Zig core.
 
 ## Run (Debug build)
@@ -50,11 +52,15 @@ Working end-to-end. Daily-driver feature-complete with the polish list still ong
 | OSC tab-title updates from the shell | ✅ |
 | Find in scrollback (⌘F) | ✅ |
 | Custom about panel + app icon | ✅ |
+| **Session restore** — tabs, splits, working directories survive relaunch | ✅ |
 
 ## Layout
 
 ```
 project.yml                       XcodeGen config
+.github/workflows/                CI + Release pipelines
+.github/dependabot.yml            Auto-PRs for actions & submodule bumps
+.swiftlint.yml                    Lint rules (enforced in CI)
 scripts/build-libghostty.sh       Builds the xcframework + resources
 vendor/ghostty/                   Submodule pinned to ghostty-org/ghostty
 Frameworks/                       Generated xcframework (gitignored)
@@ -75,11 +81,55 @@ Sources/TerminalApp/
   SavedConnections/               Connection store + Quick Connect ⌘K
   Settings/                       AppSettings + Settings window
   Search/SearchBar.swift          ⌘F find bar
+  Persistence/AppPersistence.swift Session-restore state schema + IO
 ```
+
+## Distribution
+
+`Release` builds are produced automatically by [`.github/workflows/release.yml`](.github/workflows/release.yml) when a tag like `v0.1.0` is pushed. The workflow:
+
+1. Builds the universal Release `.app`
+2. (Optionally) code-signs it with a Developer ID certificate
+3. (Optionally) submits to Apple notarization and staples the result
+4. Wraps the `.app` in a DMG and attaches it to a GitHub release
+
+Signing + notarization require the following repository secrets — without them the workflow still produces an unsigned DMG.
+
+| Secret | Purpose |
+|---|---|
+| `MACOS_CERTIFICATE` | base64-encoded `.p12` Developer ID Application cert |
+| `MACOS_CERTIFICATE_PWD` | password for the `.p12` |
+| `MACOS_KEYCHAIN_PASSWORD` | scratch password for the temp keychain |
+| `MACOS_NOTARIZATION_USER` | Apple ID for `notarytool` |
+| `MACOS_NOTARIZATION_PWD` | app-specific password |
+| `MACOS_NOTARIZATION_TEAM` | Team ID |
 
 ## Contributing
 
-Branch off `main`, run `xcodegen` after pulling, and submit a PR. The project layout uses `project.yml` (no checked-in `.xcodeproj`) specifically so new source files don't cause merge conflicts.
+Branch off `main`, run `xcodegen` after pulling, and submit a PR. The project layout uses `project.yml` (no checked-in `.xcodeproj`) specifically so new source files don't cause merge conflicts. Every PR runs the CI workflow above; the build must pass before merge.
+
+## Recommendations (deferred to future iterations)
+
+Pulled from earlier planning rounds — not done yet, parked here for later:
+
+### Original feature asks
+- **Word-highlight on selection** — double-click a word → all matches in the visible buffer light up (Xcode/VSCode style). This was on the Phase-1 plan and is the biggest crossed-out-but-never-built item.
+
+### Quality of life
+- **Divider position persistence** — drag a split divider, switch tabs, come back, current position is lost (HalfSplitView always opens 50/50). Add per-`SplitNode` ratio tracking restored on render.
+- **Pane resize minimums** — currently you can drag a divider until a pane is a sliver. Add `setHoldingPriority` so panes resist below a minimum width.
+- **Notifications when a long-running command finishes** — "your `make` finished" while you're in another tab.
+- **Theme picker search** — 18 curated themes is fine; a search field would expose the full 512 nicely.
+
+### Bigger features
+- **Workspaces** — named bundle of tabs + connections persisted on disk; switch between "work", "homelab", "personal" with one shortcut.
+- **Profiles** — multiple named configs (different fonts/themes per scope). Maps to Ghostty's `profile` concept.
+- **Full `NSTextInputClient` (IME)** — proper CJK composition, dead keys, emoji picker integration.
+- **Custom SplitView replacing NSSplitView** — Ghostty-style SwiftUI `GeometryReader` + manual divider with bigger hit area, double-click-to-equalize, configurable thickness. ~400 lines.
+
+### Repo / project polish
+- `CONTRIBUTING.md` with a step-by-step "how to add a feature" walkthrough.
+- GitHub issue templates (bug report + feature request).
 
 ## License
 

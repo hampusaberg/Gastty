@@ -1,0 +1,39 @@
+# SwiftLint configuration for Gastty.
+#
+# We aim for "useful" not "noisy" — disable rules that fight idiomatic
+# AppKit / interop-heavy Swift, and bump line length up to something
+# reasonable for declarative UI code.
+
+included:
+  - Sources
+
+excluded:
+  - vendor
+  - build
+  - Frameworks
+  - Resources
+
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - first_where
+  - last_where
+  - sorted_imports
+
+disabled_rules:
+  - identifier_name        # we use short names like `va`, `vb` in render paths
+  - trailing_comma         # we use multi-line trailing commas everywhere
+  - type_body_length       # AppKit window controllers grow naturally
+  - file_length            # ditto
+  - cyclomatic_complexity  # action callback has many cases
+  - function_body_length   # init methods that build layout get long
+  - todo                   # planned follow-ups are tracked outside the code
+
+line_length:
+  warning: 140
+  error: 200
+  ignores_urls: true
+  ignores_comments: true
+
+force_cast: warning
+force_try: warning

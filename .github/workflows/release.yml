@@ -1,0 +1,143 @@
+name: Release
+
+# Tag-driven release pipeline. Push a tag like `v0.1.0` and this builds a
+# universal Release `.app`, wraps it in a DMG, and attaches it to a GitHub
+# release. Signing + notarization are wired through repository secrets;
+# if no signing identity is configured the build still produces an
+# unsigned DMG (which users open with right-click → Open).
+#
+# Required secrets for a fully signed + notarized build:
+#   MACOS_CERTIFICATE         - base64-encoded `.p12` Developer ID Application
+#   MACOS_CERTIFICATE_PWD     - password for that .p12
+#   MACOS_KEYCHAIN_PASSWORD   - any string (used to create a temp keychain)
+#   MACOS_NOTARIZATION_USER   - Apple ID
+#   MACOS_NOTARIZATION_PWD    - app-specific password
+#   MACOS_NOTARIZATION_TEAM   - Team ID
+#
+# Without those secrets the steps that need them are skipped, so a public
+# fork can still build an unsigned release artifact.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name (e.g. v0.1.0) when running manually'
+        required: false
+        default: 'v0.0.0-dev'
+
+jobs:
+  build-and-release:
+    runs-on: macos-14
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install build tools
+        run: |
+          brew update
+          brew install zig@0.15 xcodegen create-dmg
+
+      - name: Cache Zig package downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            vendor/ghostty/.zig-cache
+          key: zig-${{ runner.os }}-${{ hashFiles('vendor/ghostty/build.zig.zon') }}
+
+      - name: Build libghostty xcframework
+        env:
+          PATH: /opt/homebrew/opt/zig@0.15/bin:${{ env.PATH }}
+        run: ./scripts/build-libghostty.sh
+
+      - name: Generate Xcode project
+        run: xcodegen
+
+      - name: Import signing certificate
+        if: env.MACOS_CERTIFICATE != ''
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$MACOS_CERTIFICATE" | base64 --decode > /tmp/certificate.p12
+          security create-keychain -p "$MACOS_KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$MACOS_KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security import /tmp/certificate.p12 -k build.keychain \
+            -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$MACOS_KEYCHAIN_PASSWORD" build.keychain
+          rm /tmp/certificate.p12
+
+      - name: Build Release .app
+        run: |
+          xcodebuild \
+            -project Gastty.xcodeproj \
+            -scheme Gastty \
+            -configuration Release \
+            -derivedDataPath build/ \
+            -destination 'platform=macOS' \
+            CODE_SIGN_STYLE=Manual \
+            build
+
+      - name: Notarize and staple
+        if: env.MACOS_NOTARIZATION_USER != ''
+        env:
+          MACOS_NOTARIZATION_USER: ${{ secrets.MACOS_NOTARIZATION_USER }}
+          MACOS_NOTARIZATION_PWD: ${{ secrets.MACOS_NOTARIZATION_PWD }}
+          MACOS_NOTARIZATION_TEAM: ${{ secrets.MACOS_NOTARIZATION_TEAM }}
+        run: |
+          APP_PATH="build/Build/Products/Release/Gastty.app"
+          ditto -c -k --keepParent "$APP_PATH" /tmp/Gastty.zip
+          xcrun notarytool submit /tmp/Gastty.zip \
+            --apple-id "$MACOS_NOTARIZATION_USER" \
+            --password "$MACOS_NOTARIZATION_PWD" \
+            --team-id "$MACOS_NOTARIZATION_TEAM" \
+            --wait
+          xcrun stapler staple "$APP_PATH"
+
+      - name: Create DMG
+        run: |
+          APP_PATH="build/Build/Products/Release/Gastty.app"
+          create-dmg \
+            --volname "Gastty ${{ steps.tag.outputs.name }}" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 128 \
+            --icon "Gastty.app" 160 200 \
+            --hide-extension "Gastty.app" \
+            --app-drop-link 440 200 \
+            --no-internet-enable \
+            "Gastty-${{ steps.tag.outputs.name }}.dmg" \
+            "$APP_PATH" || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gastty-${{ steps.tag.outputs.name }}
+          path: Gastty-${{ steps.tag.outputs.name }}.dmg
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Gastty-${{ steps.tag.outputs.name }}.dmg
+          generate_release_notes: true
