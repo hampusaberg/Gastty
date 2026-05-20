@@ -37,11 +37,17 @@ mkdir -p "$OUT"
 
 cd "$GHOSTTY"
 
-echo "==> Building libghostty xcframework (this takes a few minutes)…"
+# `native` produces just the local machine's macOS arch slice. Avoids
+# building iOS slices, which the runner's Xcode/iOS SDK may not support.
+# Set XCFRAMEWORK_TARGET=universal to opt back in (release workflow does this).
+XCFRAMEWORK_TARGET="${XCFRAMEWORK_TARGET:-native}"
+
+echo "==> Building libghostty xcframework (target=$XCFRAMEWORK_TARGET, takes a few minutes)…"
 zig build \
   -Doptimize=ReleaseFast \
   -Demit-xcframework=true \
-  -Demit-macos-app=false
+  -Demit-macos-app=false \
+  "-Dxcframework-target=$XCFRAMEWORK_TARGET"
 
 # Ghostty installs the xcframework under macos/GhosttyKit.xcframework by default.
 SRC_XCF="$GHOSTTY/macos/GhosttyKit.xcframework"

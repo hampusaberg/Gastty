@@ -61,9 +61,11 @@ jobs:
             vendor/ghostty/.zig-cache
           key: zig-${{ runner.os }}-${{ hashFiles('vendor/ghostty/build.zig.zon') }}
 
-      - name: Build libghostty xcframework
+      - name: Build libghostty xcframework (universal)
+        # Release builds ship the universal slice (macos-arm64 + x86_64)
+        # so Intel Mac users can run the resulting .app.
         env:
-          PATH: /opt/homebrew/opt/zig@0.15/bin:${{ env.PATH }}
+          XCFRAMEWORK_TARGET: universal
         run: ./scripts/build-libghostty.sh
 
       - name: Generate Xcode project
