@@ -1,0 +1,69 @@
+name: Release notes HTML
+
+# Fires whenever a GitHub release is published OR edited. The release
+# workflow's `softprops/action-gh-release` step triggers `published`
+# (so the initial auto-generated notes get a page immediately).
+# Subsequent edits — pasting polished notes, fixing typos, adding
+# screenshots — trigger `edited`, which regenerates the same page so
+# Sparkle's update dialog always shows the latest version.
+
+on:
+  release:
+    types: [published, edited]
+
+# Serialise with the release workflow's own appcast push so they
+# don't race for control of the `docs/` directory on `main`. Both
+# workflows declare the same group; whichever starts second waits.
+concurrency:
+  group: docs-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    name: Refresh ${{ github.event.release.tag_name }} notes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Write release body to file
+        env:
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          # Use `printf %s` instead of `echo` to preserve the body
+          # verbatim — no trailing newline, no backslash escapes.
+          mkdir -p /tmp
+          printf '%s' "$RELEASE_BODY" > /tmp/release-body.md
+          echo "Body length: $(wc -c < /tmp/release-body.md) bytes"
+
+      - name: Generate HTML
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/generate-release-notes-html.py \
+            --tag "${{ github.event.release.tag_name }}" \
+            --body-file /tmp/release-body.md \
+            --output-dir docs/releases/
+
+      - name: Commit + push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/releases/
+          if git diff --cached --quiet; then
+            echo "No changes to release notes HTML."
+            exit 0
+          fi
+          git commit -m "docs: refresh release notes for ${{ github.event.release.tag_name }} [skip ci]"
+          # Rebase onto whatever's on main right now, then push. The
+          # concurrency lock should prevent the lost-update case, but
+          # rebase is cheap insurance against any other commit landing
+          # in between.
+          git pull --rebase origin main
+          git push origin HEAD:main
