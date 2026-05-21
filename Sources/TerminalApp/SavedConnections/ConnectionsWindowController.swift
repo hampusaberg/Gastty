@@ -16,6 +16,23 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
     private let addFolderButton = NSButton()
     private let editButton = NSButton()
     private let removeButton = NSButton()
+    /// Switches between "show only this workspace" (folder hierarchy)
+    /// and "show every connection across every workspace" (flat list).
+    private let modeSegments = NSSegmentedControl(
+        labels: ["This Workspace", "All Connections"],
+        trackingMode: .selectOne,
+        target: nil, action: nil)
+
+    enum DisplayMode: Int {
+        case thisWorkspace = 0
+        case allConnections = 1
+    }
+    private var displayMode: DisplayMode = .thisWorkspace
+
+    /// In `.allConnections` mode, the flat list shown by the outline.
+    /// Empty in `.thisWorkspace` mode (the outline reads `folders` +
+    /// `rootConnections` instead).
+    private var allConnections: [SavedConnection] = []
 
     /// Pasteboard type used while dragging rows around inside the outline.
     /// Carries `connection:<uuid>` or `folder:<uuid>` as a UTF-8 string.
@@ -79,11 +96,27 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
         outline.addTableColumn(nameCol)
         outline.outlineTableColumn = nameCol
         let userHostCol = NSTableColumn(identifier: .init("userHost"))
-        userHostCol.title = "user@host"; userHostCol.width = 220
+        userHostCol.title = "user@host"; userHostCol.width = 200
         outline.addTableColumn(userHostCol)
         let portCol = NSTableColumn(identifier: .init("port"))
-        portCol.title = "Port"; portCol.width = 60
+        portCol.title = "Port"; portCol.width = 50
         outline.addTableColumn(portCol)
+        // Workspaces column shows small SF Symbol badges for every
+        // workspace this connection belongs to — useful in both modes,
+        // but especially in "All Connections" where it's the primary
+        // way to see "where does this live?".
+        let workspacesCol = NSTableColumn(identifier: .init("workspaces"))
+        workspacesCol.title = "Workspaces"; workspacesCol.width = 110
+        outline.addTableColumn(workspacesCol)
+
+        // Mode segmented control sits above the outline. Defaults to
+        // "This Workspace" so existing users land on the familiar view.
+        modeSegments.translatesAutoresizingMaskIntoConstraints = false
+        modeSegments.selectedSegment = displayMode.rawValue
+        modeSegments.target = self
+        modeSegments.action = #selector(modeChanged(_:))
+        modeSegments.segmentDistribution = .fillEqually
+        content.addSubview(modeSegments)
 
         scrollView.documentView = outline
         scrollView.hasVerticalScroller = true
@@ -108,7 +141,11 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
         }
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: content.topAnchor),
+            modeSegments.topAnchor.constraint(equalTo: content.topAnchor, constant: 10),
+            modeSegments.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            modeSegments.widthAnchor.constraint(equalToConstant: 280),
+
+            scrollView.topAnchor.constraint(equalTo: modeSegments.bottomAnchor, constant: 10),
             scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
@@ -129,8 +166,17 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
 
     @objc private func refresh() {
         let store = ConnectionStore.shared
-        folders = store.folders
-        rootConnections = store.rootConnections
+        if displayMode == .thisWorkspace {
+            folders = store.folders
+            rootConnections = store.rootConnections
+            allConnections = []
+        } else {
+            folders = []
+            rootConnections = []
+            allConnections = store.allConnections.sorted {
+                $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
+        }
         // Prune cached folder items so we don't carry references to deleted folders.
         let activeIDs = Set(folders.map { $0.id })
         folderItems = folderItems.filter { activeIDs.contains($0.key) }
@@ -138,6 +184,16 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
         for folder in folders {
             outline.expandItem(folderItem(for: folder.id))
         }
+    }
+
+    @objc private func modeChanged(_ sender: NSSegmentedControl) {
+        guard let newMode = DisplayMode(rawValue: sender.selectedSegment) else { return }
+        displayMode = newMode
+        // Folder operations don't apply when viewing the global list,
+        // since folders are per-workspace. Disable the New Folder
+        // button so it's clear that's intentional.
+        addFolderButton.isEnabled = (newMode == .thisWorkspace)
+        refresh()
     }
 
     private func folderItem(for folderID: UUID) -> RowItem {
@@ -151,8 +207,8 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
     // MARK: - Actions
 
     @objc private func add(_ sender: Any?) {
-        ConnectionEditor.present(over: window!, editing: nil) { conn in
-            ConnectionStore.shared.add(conn)
+        ConnectionEditor.present(over: window!, editing: nil) { conn, workspaces in
+            ConnectionStore.shared.add(conn, toWorkspaces: workspaces)
         }
     }
 
@@ -166,8 +222,9 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
         guard let item = outline.item(atRow: outline.selectedRow) as? RowItem else { return }
         switch item.row {
         case .connection(let existing):
-            ConnectionEditor.present(over: window!, editing: existing) { conn in
+            ConnectionEditor.present(over: window!, editing: existing) { conn, workspaces in
                 ConnectionStore.shared.update(conn)
+                ConnectionStore.shared.setWorkspaces(workspaces, for: conn.id)
             }
         case .folder(let folder):
             FolderNameEditor.present(over: window!, existingName: folder.name) { name in
@@ -183,10 +240,32 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
         alert.addButton(withTitle: "Cancel")
         switch item.row {
         case .connection(let conn):
-            alert.messageText = "Remove \(conn.displayName)?"
-            alert.informativeText = "This can't be undone."
-            if alert.runModal() == .alertFirstButtonReturn {
-                ConnectionStore.shared.remove(conn)
+            if displayMode == .allConnections {
+                // Global view → delete the connection from every
+                // workspace it's in and from the global list. This is
+                // the destructive "wipe this connection" path.
+                alert.messageText = "Delete \(conn.displayName) everywhere?"
+                let inWorkspaces = ConnectionStore.shared.workspaces(for: conn.id).count
+                alert.informativeText = inWorkspaces > 1
+                    ? "Removes it from all \(inWorkspaces) workspaces. This can't be undone."
+                    : "This can't be undone."
+                if alert.runModal() == .alertFirstButtonReturn {
+                    ConnectionStore.shared.removeFromAllWorkspaces(conn)
+                }
+            } else {
+                // Workspace view → remove just from THIS workspace.
+                // If it isn't in any other workspaces, the global
+                // record also goes (handled inside the store).
+                alert.messageText = "Remove \(conn.displayName) from this workspace?"
+                let inOthers = ConnectionStore.shared.workspaces(for: conn.id)
+                    .subtracting([WorkspaceStore.shared.activeID])
+                    .count
+                alert.informativeText = inOthers > 0
+                    ? "It will stay in \(inOthers) other workspace\(inOthers == 1 ? "" : "s")."
+                    : "This can't be undone."
+                if alert.runModal() == .alertFirstButtonReturn {
+                    ConnectionStore.shared.remove(conn)
+                }
             }
         case .folder(let folder):
             let count = ConnectionStore.shared.connections(in: folder.id).count
@@ -203,6 +282,9 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
     // MARK: - Outline data source
 
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
+        if displayMode == .allConnections {
+            return item == nil ? allConnections.count : 0
+        }
         guard let item = item as? RowItem else {
             return folders.count + rootConnections.count
         }
@@ -213,6 +295,9 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
+        if displayMode == .allConnections {
+            return RowItem(.connection(allConnections[index]))
+        }
         if let item = item as? RowItem, case .folder(let f) = item.row {
             let kids = ConnectionStore.shared.connections(in: f.id)
             return RowItem(.connection(kids[index]))
@@ -224,7 +309,8 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
     }
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-        guard let item = item as? RowItem else { return false }
+        guard displayMode == .thisWorkspace,
+              let item = item as? RowItem else { return false }
         if case .folder = item.row { return true }
         return false
     }
@@ -232,6 +318,26 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
         guard let column = tableColumn,
               let item = item as? RowItem else { return nil }
+
+        // Workspaces column gets a dedicated cell that draws a row of
+        // SF Symbol badges, one per workspace the connection is in.
+        if column.identifier.rawValue == "workspaces" {
+            let id = NSUserInterfaceItemIdentifier("ws-cell")
+            let cell: WorkspaceBadgesCellView =
+                (outlineView.makeView(withIdentifier: id, owner: nil) as? WorkspaceBadgesCellView)
+                ?? WorkspaceBadgesCellView(reuseID: id)
+            switch item.row {
+            case .connection(let conn):
+                let memberships = ConnectionStore.shared.workspaces(for: conn.id)
+                let ordered = WorkspaceStore.shared.workspaces.filter { memberships.contains($0.id) }
+                cell.configure(workspaces: ordered)
+            case .folder:
+                cell.configure(workspaces: [])
+            }
+            return cell
+        }
+
+        // Standard text-with-leading-icon cell for name / userHost / port.
         let id = NSUserInterfaceItemIdentifier("conn-cell")
         let cell: NSTableCellView = (outlineView.makeView(withIdentifier: id, owner: nil) as? NSTableCellView) ?? {
             let v = NSTableCellView()
@@ -292,6 +398,10 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
 
     func outlineView(_ outlineView: NSOutlineView,
                      pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
+        // Folder placement / row reordering only makes sense in the
+        // workspace-scoped view. The global view is a flat list with
+        // no folders, so dragging would have no target.
+        guard displayMode == .thisWorkspace else { return nil }
         guard let item = item as? RowItem else { return nil }
         let payload: String
         switch item.row {
@@ -392,12 +502,19 @@ final class ConnectionEditor: NSObject {
     private let jumpHostField = NSTextField()
     private let jumpPortField = NSTextField()
     private var jumpRows: [NSStackView] = []
+    /// Tracks `(workspaceID, checkbox)` pairs in display order so save
+    /// can collect the user's selection back into a `Set<UUID>`.
+    private var workspaceCheckboxes: [(UUID, NSButton)] = []
 
     private let existing: SavedConnection?
-    private let completion: (SavedConnection) -> Void
+    /// Completion gets the edited connection plus the new set of
+    /// workspaces the user wants it to belong to. Caller handles the
+    /// store mutations — add vs update + setWorkspaces is the caller's
+    /// concern.
+    private let completion: (SavedConnection, Set<UUID>) -> Void
 
     private init(existing: SavedConnection?,
-                 completion: @escaping (SavedConnection) -> Void) {
+                 completion: @escaping (SavedConnection, Set<UUID>) -> Void) {
         self.existing = existing
         self.completion = completion
         super.init()
@@ -406,7 +523,7 @@ final class ConnectionEditor: NSObject {
     /// Show a sheet to add (when `editing == nil`) or edit a connection.
     static func present(over parent: NSWindow,
                         editing existing: SavedConnection?,
-                        completion: @escaping (SavedConnection) -> Void) {
+                        completion: @escaping (SavedConnection, Set<UUID>) -> Void) {
         let editor = ConnectionEditor(existing: existing, completion: completion)
         editor.show(over: parent)
     }
@@ -456,9 +573,27 @@ final class ConnectionEditor: NSObject {
         jumpRows = [juRow, jhRow, jpRow]
         applyJumphostVisibility()
 
+        // Workspaces — checkbox per workspace, defaults to the active
+        // workspace when adding, or the connection's current
+        // memberships when editing. Setting these gives users the
+        // "reuse the same connection in two workspaces" path the
+        // sidebar / Quick Connect can't expose on their own.
+        let initialWorkspaces: Set<UUID>
+        if let existing {
+            initialWorkspaces = ConnectionStore.shared.workspaces(for: existing.id)
+        } else {
+            initialWorkspaces = [WorkspaceStore.shared.activeID]
+        }
+        let wsRow = makeWorkspacesRow(initiallyChecked: initialWorkspaces)
+        stack.addArrangedSubview(wsRow)
+
         // Tall enough that toggling on the jumphost rows doesn't have to
         // resize the alert window — empty space below when off is fine.
-        stack.frame = NSRect(x: 0, y: 0, width: 360, height: 340)
+        // Bumped to fit the workspaces picker too.
+        let perWorkspaceRow: CGFloat = 22
+        let baseHeight: CGFloat = 360
+        let extra = CGFloat(max(0, WorkspaceStore.shared.workspaces.count - 1)) * perWorkspaceRow
+        stack.frame = NSRect(x: 0, y: 0, width: 380, height: baseHeight + extra)
         alert.accessoryView = stack
 
         alert.beginSheetModal(for: parent) { [self] response in
@@ -497,8 +632,72 @@ final class ConnectionEditor: NSObject {
             }
 
             guard !connection.host.isEmpty, !connection.user.isEmpty else { return }
-            completion(connection)
+            let pickedWorkspaces = Set(workspaceCheckboxes.compactMap { (id, cb) in
+                cb.state == .on ? id : nil
+            })
+            // Guard against orphaning the connection: if the user
+            // unchecks every workspace, default back to the active one
+            // so the connection still appears somewhere. The Settings
+            // page is the only entry that could reach this state.
+            let final = pickedWorkspaces.isEmpty
+                ? [WorkspaceStore.shared.activeID]
+                : pickedWorkspaces
+            completion(connection, final)
         }
+    }
+
+    /// Build the "Workspaces" picker row — left-aligned label plus a
+    /// vertical stack of checkboxes (one per workspace), each labelled
+    /// with the workspace's SF Symbol + name. Populates
+    /// `workspaceCheckboxes` so save can collect the user's selection.
+    private func makeWorkspacesRow(initiallyChecked: Set<UUID>) -> NSStackView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .top
+        row.spacing = 8
+
+        let lbl = NSTextField(labelWithString: "Workspaces:")
+        lbl.alignment = .right
+        lbl.widthAnchor.constraint(equalToConstant: 100).isActive = true
+        row.addArrangedSubview(lbl)
+
+        let list = NSStackView()
+        list.orientation = .vertical
+        list.alignment = .leading
+        list.spacing = 4
+        list.widthAnchor.constraint(equalToConstant: 240).isActive = true
+
+        workspaceCheckboxes = []
+        for ws in WorkspaceStore.shared.workspaces {
+            let cbRow = NSStackView()
+            cbRow.orientation = .horizontal
+            cbRow.spacing = 6
+            cbRow.alignment = .centerY
+
+            let cb = NSButton(checkboxWithTitle: "",
+                              target: nil, action: nil)
+            cb.state = initiallyChecked.contains(ws.id) ? .on : .off
+
+            let iconView = NSImageView()
+            iconView.image = NSImage(systemSymbolName: ws.iconSymbol,
+                                     accessibilityDescription: ws.name)
+            iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11,
+                                                                       weight: .medium)
+            iconView.contentTintColor = .secondaryLabelColor
+
+            let nameLbl = NSTextField(labelWithString: ws.name)
+            nameLbl.font = .systemFont(ofSize: 12)
+
+            cbRow.addArrangedSubview(cb)
+            cbRow.addArrangedSubview(iconView)
+            cbRow.addArrangedSubview(nameLbl)
+            list.addArrangedSubview(cbRow)
+
+            workspaceCheckboxes.append((ws.id, cb))
+        }
+
+        row.addArrangedSubview(list)
+        return row
     }
 
     @objc private func jumphostToggled(_ sender: NSButton) {
@@ -587,3 +786,54 @@ enum FolderNameEditor {
         }
     }
 }
+
+
+// MARK: - Workspace badges cell
+
+/// Custom outline-view cell that renders a horizontal row of small SF
+/// Symbol icons — one per workspace the connection belongs to. Used in
+/// the `workspaces` column of the Connections settings outline.
+final class WorkspaceBadgesCellView: NSTableCellView {
+    private let stack = NSStackView()
+    private static let badgeSize: CGFloat = 14
+
+    init(reuseID: NSUserInterfaceItemIdentifier) {
+        super.init(frame: .zero)
+        identifier = reuseID
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    func configure(workspaces: [Workspace]) {
+        // Reuse path: wipe previous badges before building the new set.
+        stack.arrangedSubviews.forEach { v in
+            stack.removeArrangedSubview(v)
+            v.removeFromSuperview()
+        }
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: Self.badgeSize - 2,
+                                                       weight: .medium)
+        for ws in workspaces {
+            let iv = NSImageView()
+            iv.image = NSImage(systemSymbolName: ws.iconSymbol,
+                               accessibilityDescription: ws.name)?
+                .withSymbolConfiguration(symbolConfig)
+            iv.contentTintColor = .secondaryLabelColor
+            iv.toolTip = ws.name
+            iv.translatesAutoresizingMaskIntoConstraints = false
+            iv.widthAnchor.constraint(equalToConstant: Self.badgeSize).isActive = true
+            iv.heightAnchor.constraint(equalToConstant: Self.badgeSize).isActive = true
+            stack.addArrangedSubview(iv)
+        }
+    }
+}
+
