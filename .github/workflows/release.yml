@@ -51,7 +51,9 @@ jobs:
         uses: actions/checkout@v6
         with:
           submodules: recursive
-          fetch-depth: 1
+          # Full history so the post-build step can commit the appcast
+          # update back to main without "non-fast-forward" complaints.
+          fetch-depth: 0
 
       - name: Resolve tag
         id: tag
@@ -157,3 +159,81 @@ jobs:
         with:
           files: Gastty-${{ steps.tag.outputs.name }}.dmg
           generate_release_notes: true
+
+      # ---------- Sparkle: sign DMG + update appcast ----------
+      # Everything below runs only when triggered by a real tag push,
+      # not for `workflow_dispatch` test runs that produce a
+      # `v0.0.0-dev` artifact.
+      - name: Download Sparkle CLI tools
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          curl -L -o /tmp/sparkle.tar.xz \
+            "https://github.com/sparkle-project/Sparkle/releases/download/2.9.2/Sparkle-2.9.2.tar.xz"
+          mkdir -p /tmp/sparkle
+          tar -xJf /tmp/sparkle.tar.xz -C /tmp/sparkle
+
+      - name: Sign DMG with Sparkle EdDSA key
+        id: sparkle_sign
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          # Write the private key to a temp file (sign_update only reads
+          # from file or keychain; CI runners don't have a keychain
+          # entry). Remove it as soon as signing finishes.
+          KEY_FILE=$(mktemp)
+          # Use `printf` instead of `echo` to avoid the trailing newline
+          # tripping up the key parser.
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$KEY_FILE"
+          DMG="Gastty-${{ steps.tag.outputs.name }}.dmg"
+          OUT=$(/tmp/sparkle/bin/sign_update "$DMG" -f "$KEY_FILE")
+          rm -f "$KEY_FILE"
+          echo "Signature output: $OUT"
+          # The output is a single line:
+          #   sparkle:edSignature="..." length="..."
+          # which we pass verbatim to the appcast updater.
+          {
+            echo "sig_attrs<<EOF"
+            echo "$OUT"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update appcast.xml
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          VERSION_TAG: ${{ steps.tag.outputs.name }}
+          SIG_ATTRS: ${{ steps.sparkle_sign.outputs.sig_attrs }}
+        run: |
+          # Strip leading `v` from the tag for the marketing version
+          # (Sparkle's shortVersionString expects 0.7.0, not v0.7.0).
+          SHORT_VERSION="${VERSION_TAG#v}"
+          APP_PATH="build/Build/Products/Release/Gastty.app"
+          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" \
+            "$APP_PATH/Contents/Info.plist")
+          PUB_DATE=$(LC_TIME=en_US.UTF-8 date -u +"%a, %d %b %Y %H:%M:%S +0000")
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/$VERSION_TAG/Gastty-$VERSION_TAG.dmg"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/$VERSION_TAG"
+          python3 scripts/append-appcast-entry.py \
+            --version "$SHORT_VERSION" \
+            --build "$BUILD" \
+            --pub-date "$PUB_DATE" \
+            --url "$DOWNLOAD_URL" \
+            --release-url "$RELEASE_URL" \
+            --sig-attrs "$SIG_ATTRS" \
+            docs/appcast.xml
+
+      - name: Commit and push appcast update
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/appcast.xml
+          if git diff --cached --quiet; then
+            echo "No changes to appcast.xml — nothing to push."
+            exit 0
+          fi
+          git commit -m "docs: publish appcast entry for ${{ steps.tag.outputs.name }} [skip ci]"
+          # Push to main. The release workflow runs on a tag push, so
+          # HEAD is currently detached at the tagged commit — which is
+          # main's tip when tags are pushed via our normal flow.
+          git push origin HEAD:main

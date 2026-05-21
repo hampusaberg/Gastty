@@ -17,7 +17,10 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "13.0"
     PRODUCT_NAME: Gastty
 
-packages: {}
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.6.0
 
 targets:
   Gastty:
@@ -40,6 +43,7 @@ targets:
         embed: false
         codeSign: false
         link: true
+      - package: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hampusaberg.Gastty

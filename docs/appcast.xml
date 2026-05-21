@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Gastty Updates</title>
+    <link>https://hampusaberg.github.io/Gastty/appcast.xml</link>
+    <description>The auto-update feed for Gastty — a fast macOS terminal built on libghostty.</description>
+    <language>en</language>
+  </channel>
+</rss>

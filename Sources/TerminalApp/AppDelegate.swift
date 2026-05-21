@@ -1,6 +1,7 @@
 import AppKit
 import GhosttyKit
 import UserNotifications
+import Sparkle
 
 /// Owns the macOS application lifecycle: builds the menu bar, opens the first
 /// window on launch, and brokers actions like new-window / new-tab / close.
@@ -15,6 +16,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var quickConnectPanel: QuickConnectPanel?
     private var settingsWindow: SettingsWindowController?
     private var onboardingWindow: OnboardingWindowController?
+
+    /// Sparkle's controller — owns the background update timer + the UI
+    /// it presents when a new version is available. Held by AppDelegate
+    /// for the app's lifetime. Reads its config from Info.plist
+    /// (`SUFeedURL`, `SUPublicEDKey`, `SUEnableAutomaticChecks`).
+    private lazy var updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -375,6 +386,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(withTitle: "About Gastty",
                         action: #selector(showCustomAboutPanel(_:)),
                         keyEquivalent: "").target = self
+        appMenu.addItem(.separator())
+        // Sparkle's standard menu action — checks the appcast and
+        // presents the install dialog if a newer version is available,
+        // otherwise shows the "up to date" sheet.
+        let updateItem = appMenu.addItem(withTitle: "Check for Updates…",
+                                          action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+                                          keyEquivalent: "")
+        updateItem.target = updaterController
         appMenu.addItem(.separator())
         let settingsItem = appMenu.addItem(withTitle: "Settings…",
                                            action: #selector(showSettings(_:)),

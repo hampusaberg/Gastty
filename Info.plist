@@ -32,5 +32,21 @@
     <string>© 2026 Hampus Åberg</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <!-- ===== Sparkle (auto-update) ===== -->
+    <!-- Appcast feed Sparkle polls for new versions. The release
+         workflow rewrites this file on every tag push and commits it
+         to /docs so GitHub Pages serves it at this URL. -->
+    <key>SUFeedURL</key>
+    <string>https://hampusaberg.github.io/Gastty/appcast.xml</string>
+    <!-- EdDSA public key used to verify update bundles. Replace the
+         placeholder below with the output of `generate_keys` (the
+         Sparkle CLI tool). The matching private key never leaves your
+         Mac / repo secrets. -->
+    <key>SUPublicEDKey</key>
+    <string>4BsXElSusKTtCTxwAy2maGedHudLNaTzoiGCzZ4Y/PU=</string>
+    <!-- Auto-check by default; users can disable from the in-app
+         update prompt's checkbox. Sparkle polls every 24h. -->
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
 </dict>
 </plist>
