@@ -1,0 +1,72 @@
+name: Bug report
+description: Something doesn't work the way it should.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. The more specific the better — vague reports turn into long Q&A threads.
+        Please skim existing issues first; if you find a match, react with 👍 instead of opening a duplicate.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened
+      description: One or two sentences. What did you expect, and what did you get instead?
+      placeholder: "I expected ⌘S to toggle the sidebar, but it sent the literal character 's' into the terminal."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: A numbered list. If we can't reproduce it, we can't fix it.
+      placeholder: |
+        1. Open a fresh window
+        2. Press ⌘K to open Quick Connect
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: Optional if it's obvious from the summary.
+    validations:
+      required: false
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour (with screenshots / recordings if helpful)
+      description: Paste any error text in code blocks. Drag screen recordings into the field directly.
+    validations:
+      required: true
+
+  - type: input
+    id: gastty_version
+    attributes:
+      label: Gastty version
+      description: From the About panel, or the tag if you built from source. Run `git rev-parse --short HEAD` in the repo if unsure.
+      placeholder: "v0.2.1 or commit 8337039"
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "macOS 26.4 (Tahoe), Apple Silicon"
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Console logs, related issues, workarounds you've tried, hardware quirks, etc.
+    validations:
+      required: false

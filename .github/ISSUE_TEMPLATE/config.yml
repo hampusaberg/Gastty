@@ -1,0 +1,11 @@
+# Disable the "Open a blank issue" escape hatch — forces people through the
+# bug/feature forms so we get the info we need on the first round.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Contributing guide
+    url: https://github.com/hampusaberg/Gastty/blob/main/CONTRIBUTING.md
+    about: Building, project layout, code style, PR flow.
+  - name: Releases
+    url: https://github.com/hampusaberg/Gastty/releases
+    about: Download the latest signed DMG.

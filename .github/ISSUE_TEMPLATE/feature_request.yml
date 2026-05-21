@@ -1,0 +1,57 @@
+name: Feature request
+description: An idea for something Gastty should do that it doesn't yet.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Feature requests are most useful when they describe a real workflow that's currently painful — not just "X would be nice."
+        Have a look at the **Recommendations** section in the [README](../../blob/main/README.md) first; if your idea is there,
+        link the existing entry rather than opening a duplicate.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the problem you're trying to solve
+      description: What are you doing today, and what's annoying about it? Skip this if it's purely cosmetic — that's fine, just say so.
+      placeholder: "I have 15 saved connections across 4 environments. Finding the right one in a flat list is slow."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would the feature do
+      description: Describe the behaviour from a user's perspective. Mock-ups / screenshots are great if the change is visual.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Other shapes the solution could take, or existing workarounds. Helps avoid the obvious-but-wrong design.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Rough scope (your guess is fine)
+      options:
+        - "Small (single file, a few hours)"
+        - "Medium (1–2 days, a couple of files)"
+        - "Large (multi-day, touches multiple subsystems)"
+        - "I have no idea"
+      default: 3
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Links to how other terminals do it, related issues, hardware constraints, etc.
+    validations:
+      required: false
