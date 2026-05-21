@@ -7,6 +7,15 @@
     <language>en</language>
     <sparkle:fullReleaseNotesLink>https://hampusaberg.github.io/Gastty/releases/index.html</sparkle:fullReleaseNotesLink>
     <item>
+      <title>Version 0.7.2</title>
+      <pubDate>Thu, 21 May 2026 14:05:49 +0000</pubDate>
+      <sparkle:version>12</sparkle:version>
+      <sparkle:shortVersionString>0.7.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://hampusaberg.github.io/Gastty/releases/v0.7.2.html</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/hampusaberg/Gastty/releases/download/v0.7.2/Gastty-v0.7.2.dmg" length="8391469" type="application/octet-stream" sparkle:edSignature="Ak5XdrGgzmgBVLm2PC/KOzPbxUzMp0rfQ8M5BgRPNQJWm72dhqcFW4MaM18w8iSi448c87ehNNQS15Z18BVzDw==" />
+    </item>
+    <item>
       <title>Version 0.7.1</title>
       <pubDate>Thu, 21 May 2026 13:18:00 +0000</pubDate>
       <sparkle:version>11</sparkle:version>
