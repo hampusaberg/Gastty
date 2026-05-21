@@ -1,8 +1,12 @@
 # Gastty
 
 [![CI](https://github.com/icnswe/Gastty/actions/workflows/ci.yml/badge.svg)](https://github.com/icnswe/Gastty/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/icnswe/Gastty?sort=semver)](https://github.com/icnswe/Gastty/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A fast, GPU-accelerated macOS terminal built on [libghostty](https://github.com/ghostty-org/ghostty). Native Swift/AppKit shell on top of Ghostty's MIT-licensed Zig core.
+A fast, GPU-accelerated macOS terminal built on [libghostty](https://github.com/ghostty-org/ghostty) with a native Swift/AppKit shell. Tabs, splits, a saved-connections sidebar with folders, SSH jumphost support, theme-aware chrome — all the daily-driver pieces, none of the Electron weight.
+
+**Download:** grab the latest DMG from [Releases](https://github.com/icnswe/Gastty/releases). Or build from source — see below.
 
 ## Run (Debug build)
 
@@ -46,6 +50,8 @@ Working end-to-end. Daily-driver feature-complete with the polish list still ong
 | Tabs (rename, drag-reorder, close, +, ⌘1-⌘9, middle-click close) | ✅ |
 | Split panes (⌘D / ⌘⇧D, ⌘[ / ⌘], focus via click) | ✅ |
 | Saved SSH connections + ⌘K Quick Connect | ✅ |
+| Connections sidebar (⌘S) — folders, drag-reorder, double-click to open | ✅ |
+| SSH jumphost / ProxyJump support per connection | ✅ |
 | Settings (font, size, cursor, theme, opacity, blur) | ✅ |
 | Theme-aware chrome (top bar matches theme) | ✅ |
 | Themes — 18 in Settings dropdown, 512 bundled (rest loadable via `~/.config/ghostty/config`) | ✅ |

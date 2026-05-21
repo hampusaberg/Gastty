@@ -35,6 +35,13 @@ permissions:
   # integration".
   contents: write
 
+concurrency:
+  # Cancel an in-flight release build the moment a newer push for the same
+  # tag (or workflow_dispatch invocation) comes in. Avoids two ~10-minute
+  # universal Xcode builds running in parallel for back-to-back tag pushes.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-release:
     runs-on: macos-latest
