@@ -27,6 +27,8 @@ targets:
       - path: Sources/TerminalApp
       - path: Resources/default.conf
         buildPhase: resources
+      - path: Resources/AppIcon.icns
+        buildPhase: resources
       - path: Resources/terminfo
         buildPhase: resources
         type: folder
@@ -41,13 +43,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.hampusaberg.Gastty
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_NSPrincipalClass: NSApplication
-        INFOPLIST_KEY_LSMinimumSystemVersion: "13.0"
-        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
-        INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Hampus Åberg"
-        INFOPLIST_KEY_CFBundleDisplayName: Gastty
-        INFOPLIST_KEY_NSHighResolutionCapable: YES
+        # We ship a static Info.plist (not GENERATE_INFOPLIST_FILE) because
+        # Xcode's auto-generated plist only honors a documented subset of
+        # INFOPLIST_KEY_* settings and silently drops the rest (CFBundleIconFile,
+        # NSHighResolutionCapable, …). Owning the file gives full control.
+        INFOPLIST_FILE: Info.plist
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_ENTITLEMENTS: Sources/TerminalApp/Terminal.entitlements
         CLANG_CXX_LIBRARY: libc++
