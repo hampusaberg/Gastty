@@ -64,15 +64,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // new-window — once the user finishes (or dismisses), the
         // continuation opens the first terminal window for them.
         if !SettingsStore.shared.settings.hasCompletedOnboarding {
-            showOnboarding { [weak self] in
-                guard let self else { return }
-                if let saved = AppPersistence.load(), !saved.windows.isEmpty {
-                    self.restoreWindows(from: saved)
-                } else {
-                    self.openNewWindow(self)
-                }
-                NSApp.activate(ignoringOtherApps: true)
-            }
+            // Run the appcast probe BEFORE the welcome window so a
+            // user on a stale DMG (e.g. a colleague's old copy passed
+            // around in Slack) is offered the latest version first.
+            // The check resolves to `.upToDate` on any failure mode
+            // (no network, slow feed, malformed XML) so first launch
+            // stays snappy even when offline.
+            checkForUpdateThenOnboard()
         } else if let saved = AppPersistence.load(), !saved.windows.isEmpty {
             restoreWindows(from: saved)
             NSApp.activate(ignoringOtherApps: true)
@@ -146,6 +144,99 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GhosttyRuntime.shared.reloadConfig()
         for controller in controllers {
             controller.applySettings(SettingsStore.shared.settings)
+        }
+    }
+
+    /// Probe the appcast on launch and, if a newer version is shipping,
+    /// offer the user the chance to grab it before they bother going
+    /// through onboarding. Always shows onboarding at the end of the
+    /// flow — either the user picks "Continue" (immediate), or they
+    /// pick "Update" (Sparkle's install dialog takes over; the
+    /// onboarding window sits behind it as a fallback if they cancel).
+    ///
+    /// On any failure to reach the feed (offline, slow, malformed) we
+    /// silently fall through to onboarding so a first launch never
+    /// hangs on a network issue.
+    private func checkForUpdateThenOnboard() {
+        let info = Bundle.main.infoDictionary
+        let currentVersion = (info?["CFBundleShortVersionString"] as? String) ?? "0.0.0"
+        let feedURLString = (info?["SUFeedURL"] as? String) ?? ""
+
+        let proceedToOnboarding: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.showOnboarding { [weak self] in
+                guard let self else { return }
+                if let saved = AppPersistence.load(), !saved.windows.isEmpty {
+                    self.restoreWindows(from: saved)
+                } else {
+                    self.openNewWindow(self)
+                }
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+
+        guard let feedURL = URL(string: feedURLString) else {
+            proceedToOnboarding()
+            return
+        }
+
+        OnboardingUpdateCheck.check(feedURL: feedURL, currentVersion: currentVersion) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .upToDate:
+                proceedToOnboarding()
+            case .updateAvailable(let latest):
+                self.presentPreOnboardingUpdateAlert(
+                    current: currentVersion,
+                    latest: latest,
+                    proceed: proceedToOnboarding
+                )
+            }
+        }
+    }
+
+    /// The modal shown before onboarding when a newer release exists.
+    /// Two paths: install the newer version via Sparkle, or continue
+    /// with the running version. We always proceed to the onboarding
+    /// window afterwards — if the user picked "Update", Sparkle's own
+    /// install dialog stacks on top, and the onboarding is there as a
+    /// safety net should they back out of the update.
+    private func presentPreOnboardingUpdateAlert(
+        current: String,
+        latest: String,
+        proceed: @escaping () -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "A newer version of Gastty is available"
+        alert.informativeText = """
+            You're running \(current). Version \(latest) is available with the latest features and fixes.
+
+            We recommend updating before setting things up, so your preferences carry forward into the current release.
+            """
+        alert.addButton(withTitle: "Update to \(latest)…")
+        alert.addButton(withTitle: "Continue with \(current)")
+        // The icon defaults to the app icon, which we want — keeps the
+        // alert feeling like it belongs to Gastty rather than a system
+        // chime.
+
+        // We need a host window for `runModal` to attach to so the
+        // alert renders sensibly even though no app windows are open
+        // yet. `runModal()` (without a sheet) is fine here.
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+
+        switch response {
+        case .alertFirstButtonReturn:
+            // Hand off to Sparkle. Its dialog will show release notes
+            // and offer Install / Skip / Later — we don't reimplement
+            // that. Meanwhile we still raise the onboarding window so
+            // it's already up if the user backs out of Sparkle's flow.
+            updaterController.checkForUpdates(nil)
+            proceed()
+        default:
+            // "Continue with X.Y.Z" — straight to onboarding.
+            proceed()
         }
     }
 
