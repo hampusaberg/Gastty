@@ -20,6 +20,13 @@ final class WorkspaceSwitcherView: NSButton {
         font = .systemFont(ofSize: 11, weight: .medium)
         target = self
         action = #selector(showMenu(_:))
+        // Stop autolayout from stretching the pill to fill the empty
+        // space between the rightmost tab and the trailing edge of the
+        // tab bar. Default NSButton hugging is `.defaultLow`, which lets
+        // the bezel grow to absorb extra horizontal slack. Pinning it
+        // to `.required` keeps the pill at its intrinsic content size.
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
 
         NotificationCenter.default.addObserver(
             self,
