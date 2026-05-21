@@ -2,7 +2,7 @@ import AppKit
 
 /// Floating, blurred panel that opens with ⌘K — type to fuzzy-filter saved
 /// connections, ↑/↓ to navigate, Enter to connect, Esc to dismiss.
-final class QuickConnectPanel: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate {
+final class QuickConnectPanel: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate {
 
     private let panel: NSPanel
     private let searchField = NSTextField()
@@ -39,6 +39,12 @@ final class QuickConnectPanel: NSObject, NSTextFieldDelegate, NSTableViewDataSou
 
         super.init()
 
+        // Self-delegate the panel so we can dismiss on `windowDidResignKey`
+        // — i.e. the user clicked anywhere outside the panel. The existing
+        // `hidesOnDeactivate` only fires when the entire app deactivates;
+        // it doesn't catch a click on our own terminal window, which is
+        // what a user expects to dismiss a floating palette.
+        panel.delegate = self
         layoutPanel()
         searchField.delegate = self
         tableView.dataSource = self
@@ -162,6 +168,22 @@ final class QuickConnectPanel: NSObject, NSTextFieldDelegate, NSTableViewDataSou
         tableView.reloadData()
         if !filtered.isEmpty {
             tableView.selectRowIndexes([0], byExtendingSelection: false)
+        }
+    }
+
+    // MARK: - NSWindowDelegate
+
+    /// Click outside the panel → dismiss. The panel loses key status the
+    /// moment another window in our app accepts focus (terminal click,
+    /// menu bar interaction, settings window opening, etc.). We defer
+    /// the actual `orderOut` to the next runloop tick so that the click
+    /// that triggered the resign has finished routing — otherwise the
+    /// outgoing click can race the close and end up landing on the
+    /// panel's table view instead of the intended terminal pane.
+    func windowDidResignKey(_ notification: Notification) {
+        guard panel.isVisible else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.panel.orderOut(nil)
         }
     }
 
