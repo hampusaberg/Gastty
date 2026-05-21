@@ -1,12 +1,12 @@
 # Gastty
 
-[![CI](https://github.com/icnswe/Gastty/actions/workflows/ci.yml/badge.svg)](https://github.com/icnswe/Gastty/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/icnswe/Gastty?sort=semver)](https://github.com/icnswe/Gastty/releases)
+[![CI](https://github.com/hampusaberg/Gastty/actions/workflows/ci.yml/badge.svg)](https://github.com/hampusaberg/Gastty/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/hampusaberg/Gastty?sort=semver)](https://github.com/hampusaberg/Gastty/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A fast, GPU-accelerated macOS terminal built on [libghostty](https://github.com/ghostty-org/ghostty) with a native Swift/AppKit shell. Tabs, splits, a saved-connections sidebar with folders, SSH jumphost support, theme-aware chrome — all the daily-driver pieces, none of the Electron weight.
 
-**Download:** grab the latest DMG from [Releases](https://github.com/icnswe/Gastty/releases). Or build from source — see below.
+**Download:** grab the latest DMG from [Releases](https://github.com/hampusaberg/Gastty/releases). Or build from source — see below.
 
 ## Run (Debug build)
 
@@ -26,7 +26,7 @@ Requires: macOS 13+, Homebrew, Xcode 15+.
 
 ```sh
 brew install zig@0.15 xcodegen
-git clone --recursive git@github.com:icnswe/Gastty.git
+git clone --recursive git@github.com:hampusaberg/Gastty.git
 cd Gastty
 ./scripts/build-libghostty.sh      # ~5 min first run, cached after
 xcodegen                            # generates Gastty.xcodeproj
