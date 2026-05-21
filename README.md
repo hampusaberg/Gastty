@@ -149,10 +149,13 @@ Branch off `main`, run `xcodegen` after pulling, and submit a PR. The project la
 
 Open items — anything currently being worked on is in [Issues](https://github.com/hampusaberg/Gastty/issues). PRs welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
-The QoL bucket (pane minimums, divider persistence, command-finished notifications, theme browser search) is fully done, and workspaces with cross-workspace connections shipped in v0.5.0. Two larger items remain:
+The QoL bucket (pane minimums, divider persistence, command-finished notifications, theme browser search) is fully done, and workspaces with cross-workspace connections shipped in v0.5.0.
 
-- **Full `NSTextInputClient` (IME)** — proper CJK composition, dead keys, emoji-picker integration. The single feature that gates international users.
+### On the table
 - **Custom SplitView replacing NSSplitView** — drop NSSplitView in favour of a hand-rolled implementation with thicker hit-area dividers, double-click-to-equalize, and configurable thickness. Lower urgency now that the depth-3 nesting bug is fixed; mostly polish.
+
+### Nice-to-have / deferred
+- **Full `NSTextInputClient` (IME)** — proper CJK composition, dead keys, emoji-picker integration. Required for typing in Chinese / Japanese / Korean and for the press-and-hold accent menu. ASCII / Latin typing already works perfectly without it, so this is deferred unless a non-ASCII user shows up needing it. The full implementation pattern (mirroring Ghostty's `NSTextInputClient` extension on `SurfaceView_AppKit.swift`) is ~300 lines plus careful per-IME testing.
 
 ## License
 
