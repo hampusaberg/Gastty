@@ -82,15 +82,19 @@ final class WorkspaceSwitcherView: NSButton {
                                 accessibilityDescription: "New workspace")
         menu.addItem(newItem)
 
-        // Only offer rename / delete when the active isn't the
-        // protected Default workspace (which is always first in the list).
-        if store.workspaces.first?.id != store.activeID {
-            let renameItem = NSMenuItem(title: "Rename Current Workspace…",
-                                        action: #selector(renameActive(_:)),
-                                        keyEquivalent: "")
-            renameItem.target = self
-            menu.addItem(renameItem)
+        // Rename / change icon is available for ANY workspace including
+        // the protected Default — the user might have started with
+        // "Default" and now wants to call it "Personal" with a
+        // different icon. Delete is still gated to non-Default since
+        // we need at least one workspace to always exist and the
+        // first-created one is conceptually the "home" workspace.
+        let renameItem = NSMenuItem(title: "Rename Current Workspace…",
+                                    action: #selector(renameActive(_:)),
+                                    keyEquivalent: "")
+        renameItem.target = self
+        menu.addItem(renameItem)
 
+        if store.workspaces.first?.id != store.activeID {
             let deleteItem = NSMenuItem(title: "Delete Current Workspace",
                                         action: #selector(deleteActive(_:)),
                                         keyEquivalent: "")
