@@ -21,11 +21,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// it presents when a new version is available. Held by AppDelegate
     /// for the app's lifetime. Reads its config from Info.plist
     /// (`SUFeedURL`, `SUPublicEDKey`, `SUEnableAutomaticChecks`).
-    private lazy var updaterController = SPUStandardUpdaterController(
+    ///
+    /// Sparkle 2.x refuses to start when the host bundle isn't signed
+    /// with a Developer ID certificate, which Debug builds never have —
+    /// instead it surfaces a "The updater failed to start" alert that's
+    /// pure noise during local development. Gate the controller behind
+    /// `#if !DEBUG` so Debug runs skip Sparkle entirely; Release builds
+    /// (which is what ships in the DMG) get the full machinery.
+    #if DEBUG
+    private let updaterController: SPUStandardUpdaterController? = nil
+    #else
+    private lazy var updaterController: SPUStandardUpdaterController? = SPUStandardUpdaterController(
         startingUpdater: true,
         updaterDelegate: nil,
         userDriverDelegate: nil
     )
+    #endif
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -175,7 +186,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        guard let feedURL = URL(string: feedURLString) else {
+        // If Sparkle isn't live in this build (Debug), the "Update" path
+        // can't do anything useful — skip the probe entirely and just
+        // run onboarding. The check itself would succeed, but the
+        // resulting alert would lead to a dead-end.
+        guard updaterController != nil, let feedURL = URL(string: feedURLString) else {
             proceedToOnboarding()
             return
         }
@@ -232,7 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // and offer Install / Skip / Later — we don't reimplement
             // that. Meanwhile we still raise the onboarding window so
             // it's already up if the user backs out of Sparkle's flow.
-            updaterController.checkForUpdates(nil)
+            updaterController?.checkForUpdates(nil)
             proceed()
         default:
             // "Continue with X.Y.Z" — straight to onboarding.
@@ -480,12 +495,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(.separator())
         // Sparkle's standard menu action — checks the appcast and
         // presents the install dialog if a newer version is available,
-        // otherwise shows the "up to date" sheet.
-        let updateItem = appMenu.addItem(withTitle: "Check for Updates…",
-                                          action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
-                                          keyEquivalent: "")
-        updateItem.target = updaterController
-        appMenu.addItem(.separator())
+        // otherwise shows the "up to date" sheet. Only attached when
+        // Sparkle is live (Release builds); Debug skips it because
+        // Sparkle won't function without a Developer ID signature.
+        if let updater = updaterController {
+            let updateItem = appMenu.addItem(withTitle: "Check for Updates…",
+                                              action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+                                              keyEquivalent: "")
+            updateItem.target = updater
+            appMenu.addItem(.separator())
+        }
         let settingsItem = appMenu.addItem(withTitle: "Settings…",
                                            action: #selector(showSettings(_:)),
                                            keyEquivalent: ",")
