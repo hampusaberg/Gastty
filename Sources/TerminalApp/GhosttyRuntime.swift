@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import GhosttyKit
+import UserNotifications
 
 /// Owns the singleton `ghostty_app_t` and the loaded config.
 ///
@@ -107,6 +108,18 @@ final class GhosttyRuntime: ObservableObject {
                 guard let pwdPtr = action.action.pwd.pwd else { return true }
                 let pwd = String(cString: pwdPtr)
                 DispatchQueue.main.async { host.workingDirectory = pwd }
+                return true
+
+            case GHOSTTY_ACTION_COMMAND_FINISHED:
+                // Shells with our shell-integration enabled report the
+                // duration of each foreground command via OSC. When the
+                // user isn't looking at this surface and the command ran
+                // long enough to matter, surface a system notification.
+                let nanos = action.action.command_finished.duration
+                DispatchQueue.main.async {
+                    GhosttyRuntime.shared.notifyCommandFinished(host: host,
+                                                                 durationNanos: nanos)
+                }
                 return true
 
             case GHOSTTY_ACTION_SET_TITLE, GHOSTTY_ACTION_SET_TAB_TITLE:
@@ -283,6 +296,68 @@ final class GhosttyRuntime: ObservableObject {
         // flicker through the intermediate values. We coalesce updates that
         // arrive within 80ms and only apply the latest.
         session.scheduleTitleUpdate(to: trimmed, controller: controller)
+    }
+
+    // MARK: - Command-finished notifications
+
+    /// Minimum command runtime before we surface a notification. Anything
+    /// faster is almost certainly something the user typed and watched
+    /// complete — they don't need an alert for `ls`.
+    private static let commandFinishedThreshold: TimeInterval = 5
+
+    /// Fired from the `GHOSTTY_ACTION_COMMAND_FINISHED` handler. Surfaces a
+    /// macOS notification when the command was long-running AND the user
+    /// is currently looking elsewhere. The user-not-looking gate is
+    /// important — if they're staring at the surface, the notification is
+    /// just noise.
+    func notifyCommandFinished(host: SurfaceHostView, durationNanos: UInt64) {
+        let seconds = TimeInterval(durationNanos) / 1_000_000_000
+        guard seconds >= Self.commandFinishedThreshold else { return }
+
+        if isUserLookingAt(host: host) { return }
+
+        let content = UNMutableNotificationContent()
+        let sessionTitle = host.session?.title.trimmingCharacters(in: .whitespaces) ?? ""
+        content.title = sessionTitle.isEmpty ? "Command finished" : sessionTitle
+        content.body = "Finished after \(Self.formatDuration(seconds))"
+        content.sound = .default
+
+        let request = UNNotificationRequest(identifier: UUID().uuidString,
+                                            content: content,
+                                            trigger: nil)
+        UNUserNotificationCenter.current().add(request) { _ in
+            // Swallow errors silently — most common cause is the user
+            // denied notification permission, which isn't actionable.
+        }
+    }
+
+    /// Returns true when the surface is the focused pane of the active
+    /// tab of the key window AND the app itself is frontmost. Anything
+    /// less means the user is plausibly elsewhere and a notification adds
+    /// value.
+    private func isUserLookingAt(host: SurfaceHostView) -> Bool {
+        guard NSApp.isActive,
+              let window = host.window,
+              window.isKeyWindow,
+              let session = host.session,
+              session.activeSurface === host else {
+            return false
+        }
+        return true
+    }
+
+    private static func formatDuration(_ seconds: TimeInterval) -> String {
+        if seconds < 60 {
+            return String(format: "%.1fs", seconds)
+        }
+        let total = Int(seconds.rounded())
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let secs = total % 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+        return "\(minutes)m \(secs)s"
     }
 
     /// Re-read all config sources and push the result to every live surface.

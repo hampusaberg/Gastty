@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyKit
+import UserNotifications
 
 /// Owns the macOS application lifecycle: builds the menu bar, opens the first
 /// window on launch, and brokers actions like new-window / new-tab / close.
@@ -22,6 +23,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = SettingsStore.shared               // generates runtime.conf early
         _ = GhosttyRuntime.shared              // loads runtime.conf during init
         _ = ConnectionStore.shared
+
+        // Request notification permission for "command finished" alerts.
+        // Async — the user sees the system prompt once on first launch;
+        // until they grant it, command-finished notifications silently
+        // no-op. Not fatal if they decline.
+        UNUserNotificationCenter.current().requestAuthorization(
+            options: [.alert, .sound]
+        ) { _, _ in /* user choice persists in macOS settings */ }
 
         // First-run onboarding takes precedence over both restore and
         // new-window — once the user finishes (or dismisses), the
