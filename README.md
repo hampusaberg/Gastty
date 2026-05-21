@@ -114,28 +114,21 @@ Signing + notarization require the following repository secrets — without them
 
 Branch off `main`, run `xcodegen` after pulling, and submit a PR. The project layout uses `project.yml` (no checked-in `.xcodeproj`) specifically so new source files don't cause merge conflicts. Every PR runs the CI workflow above; the build must pass before merge.
 
-## Recommendations (deferred to future iterations)
+## Roadmap
 
-Pulled from earlier planning rounds — not done yet, parked here for later:
+Open items — anything currently being worked on is in [Issues](https://github.com/hampusaberg/Gastty/issues). PRs welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
-### Original feature asks
-- **Word-highlight on selection** — double-click a word → all matches in the visible buffer light up (Xcode/VSCode style). This was on the Phase-1 plan and is the biggest crossed-out-but-never-built item.
-
-### Quality of life
-- **Divider position persistence** — drag a split divider, switch tabs, come back, current position is lost (HalfSplitView always opens 50/50). Add per-`SplitNode` ratio tracking restored on render.
-- **Pane resize minimums** — currently you can drag a divider until a pane is a sliver. Add `setHoldingPriority` so panes resist below a minimum width.
-- **Notifications when a long-running command finishes** — "your `make` finished" while you're in another tab.
-- **Theme picker search** — 18 curated themes is fine; a search field would expose the full 512 nicely.
+### Feature gaps
+- **Word-highlight on selection** — double-click a word → all matches in the visible buffer light up (Xcode / VS Code style). Biggest still-missing item from the original Phase-1 plan.
+- **Divider position persistence** — drag a split divider, switch tabs, come back, current position is lost. Needs per-`SplitNode` ratio tracking restored on render plus a persistence schema bump.
+- **Notifications when a long-running command finishes** — "your `make` finished" while you're in another tab. The libghostty hook (`GHOSTTY_ACTION_COMMAND_FINISHED`) already fires; we just don't handle it yet.
+- **Theme picker search** — 18 curated themes is fine, but a search field would expose the full 512 bundled ones nicely.
 
 ### Bigger features
 - **Workspaces** — named bundle of tabs + connections persisted on disk; switch between "work", "homelab", "personal" with one shortcut.
-- **Profiles** — multiple named configs (different fonts/themes per scope). Maps to Ghostty's `profile` concept.
-- **Full `NSTextInputClient` (IME)** — proper CJK composition, dead keys, emoji picker integration.
+- **Profiles** — multiple named configs (different fonts / themes per scope). Maps to Ghostty's `profile` concept.
+- **Full `NSTextInputClient` (IME)** — proper CJK composition, dead keys, emoji-picker integration. Gates international users.
 - **Custom SplitView replacing NSSplitView** — Ghostty-style SwiftUI `GeometryReader` + manual divider with bigger hit area, double-click-to-equalize, configurable thickness. ~400 lines.
-
-### Repo / project polish
-- `CONTRIBUTING.md` with a step-by-step "how to add a feature" walkthrough.
-- GitHub issue templates (bug report + feature request).
 
 ## License
 
