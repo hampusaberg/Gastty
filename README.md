@@ -61,6 +61,17 @@ Daily-driver feature-complete. The small / medium polish items from the original
 | Saved SSH connections + ⌘K Quick Connect palette (dismisses on click outside) | ✅ |
 | Connections sidebar (⌘S) — folders, drag-reorder, double-click to open as new tab | ✅ |
 | SSH jumphost / ProxyJump support per connection (with the `env`-prefix workaround for libghostty's `exec -l` argv[0] mangling) | ✅ |
+| A single connection can opt into multiple workspaces — manage memberships from the Connections settings | ✅ |
+
+### Workspaces
+| Feature | Status |
+|---|---|
+| Workspace switcher pill in the tab bar's trailing edge (current SF Symbol + name) | ✅ |
+| Per-workspace saved connections, folders, and open tabs/splits | ✅ |
+| Picker grid of 24 curated SF Symbols when creating or renaming a workspace | ✅ |
+| Window frame preserved across workspace switches | ✅ |
+| Bootstrap "Default" workspace can be renamed + re-iconed but never deleted | ✅ |
+| Connections settings has "This Workspace / All Connections" view modes with workspace badges per connection | ✅ |
 
 ### Appearance & settings
 | Feature | Status |
@@ -102,9 +113,10 @@ Sources/TerminalApp/
   Session.swift                   Tab model (owns a SplitNode tree)
   Splits/SplitNode.swift          Binary tree of surfaces + NSSplitView with min-size + ratio persistence
   TabBar/                         Custom tab bar (drag-reorder, rename, per-tab close)
-  SavedConnections/               Connection store, folders, sidebar (⌘S), Quick Connect (⌘K)
+  SavedConnections/               Connection store (global + per-workspace refs), folders, sidebar (⌘S), Quick Connect (⌘K)
   Settings/                       AppSettings, settings window, searchable theme browser
   Onboarding/                     First-run welcome flow
+  Workspaces/                     Workspace store + per-workspace persistence, switcher pill, icon/name editor
   Search/SearchBar.swift          ⌘F find bar
   Persistence/AppPersistence.swift Session-restore state schema + IO
 ```
@@ -137,13 +149,10 @@ Branch off `main`, run `xcodegen` after pulling, and submit a PR. The project la
 
 Open items — anything currently being worked on is in [Issues](https://github.com/hampusaberg/Gastty/issues). PRs welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
-All four small-to-medium quality-of-life items from the original plan have shipped: pane minimums + depth-3 layout fix (v0.3.0), divider position persistence, command-finished notifications, and the searchable 512-theme picker. What's left are the bigger features.
+The QoL bucket (pane minimums, divider persistence, command-finished notifications, theme browser search) is fully done, and workspaces with cross-workspace connections shipped in v0.5.0. Two larger items remain:
 
-### Bigger features
-- **Workspaces** — named bundle of tabs + connections persisted on disk; switch between "work", "homelab", "personal" with one shortcut.
-- **Profiles** — multiple named configs (different fonts / themes per scope). Maps to Ghostty's `profile` concept.
-- **Full `NSTextInputClient` (IME)** — proper CJK composition, dead keys, emoji-picker integration. Gates international users.
-- **Custom SplitView replacing NSSplitView** — Ghostty-style SwiftUI `GeometryReader` + manual divider with bigger hit area, double-click-to-equalize, configurable thickness. ~400 lines.
+- **Full `NSTextInputClient` (IME)** — proper CJK composition, dead keys, emoji-picker integration. The single feature that gates international users.
+- **Custom SplitView replacing NSSplitView** — drop NSSplitView in favour of a hand-rolled implementation with thicker hit-area dividers, double-click-to-equalize, and configurable thickness. Lower urgency now that the depth-3 nesting bug is fixed; mostly polish.
 
 ## License
 
