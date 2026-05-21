@@ -10,6 +10,13 @@ name: Release notes HTML
 on:
   release:
     types: [published, edited]
+  # Manual entry point — used to backfill the combined changelog after
+  # the script was first added, and as a safety valve if a release-event
+  # run gets eaten by an outage. Per-version regeneration is skipped on
+  # manual runs (no release context to draw a body from); only the
+  # combined `index.html` is rebuilt, since it pulls everything fresh
+  # from the GitHub API.
+  workflow_dispatch:
 
 # Serialise with the release workflow's own appcast push so they
 # don't race for control of the `docs/` directory on `main`. Both
@@ -23,7 +30,7 @@ permissions:
 
 jobs:
   refresh:
-    name: Refresh ${{ github.event.release.tag_name }} notes
+    name: Refresh ${{ github.event.release.tag_name || 'all' }} notes
     runs-on: ubuntu-latest
     steps:
       - name: Check out main
@@ -33,6 +40,7 @@ jobs:
           fetch-depth: 0
 
       - name: Write release body to file
+        if: github.event_name == 'release'
         env:
           RELEASE_BODY: ${{ github.event.release.body }}
         run: |
@@ -43,6 +51,7 @@ jobs:
           echo "Body length: $(wc -c < /tmp/release-body.md) bytes"
 
       - name: Generate HTML
+        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -50,6 +59,20 @@ jobs:
             --tag "${{ github.event.release.tag_name }}" \
             --body-file /tmp/release-body.md \
             --output-dir docs/releases/
+
+      - name: Regenerate combined changelog
+        # Sparkle's update dialog uses the channel-level
+        # `<sparkle:fullReleaseNotesLink>` whenever a user is more than
+        # one version behind, so they see notes for every version
+        # they're skipping. Regenerating on every release event keeps
+        # that combined page in lock-step with edits to individual
+        # release bodies.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 scripts/generate-combined-changelog-html.py \
+            --repo "${{ github.repository }}" \
+            --output docs/releases/index.html
 
       - name: Commit + push if changed
         run: |
@@ -60,7 +83,11 @@ jobs:
             echo "No changes to release notes HTML."
             exit 0
           fi
-          git commit -m "docs: refresh release notes for ${{ github.event.release.tag_name }} [skip ci]"
+          MSG_SUFFIX="${{ github.event.release.tag_name }}"
+          if [ -z "$MSG_SUFFIX" ]; then
+            MSG_SUFFIX="(manual run)"
+          fi
+          git commit -m "docs: refresh release notes for $MSG_SUFFIX [skip ci]"
           # Rebase onto whatever's on main right now, then push. The
           # concurrency lock should prevent the lost-update case, but
           # rebase is cheap insurance against any other commit landing

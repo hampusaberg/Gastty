@@ -5,6 +5,7 @@
     <link>https://hampusaberg.github.io/Gastty/appcast.xml</link>
     <description>The auto-update feed for Gastty — a fast macOS terminal built on libghostty.</description>
     <language>en</language>
+    <sparkle:fullReleaseNotesLink>https://hampusaberg.github.io/Gastty/releases/index.html</sparkle:fullReleaseNotesLink>
     <item>
       <title>Version 0.7.1</title>
       <pubDate>Thu, 21 May 2026 13:18:00 +0000</pubDate>
