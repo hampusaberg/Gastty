@@ -164,35 +164,51 @@ final class HalfSplitView: NSSplitView, NSSplitViewDelegate {
     override func layout() {
         super.layout()
         guard !hasBalanced, arrangedSubviews.count == 2 else { return }
-        let total = isVertical ? bounds.width : bounds.height
-        guard total > 0 else { return }
-        // CRITICAL: set the flag BEFORE `setPosition`. NSSplitView's
-        // `setPosition` synchronously triggers another `layout()`; if the
-        // flag is still false at that point we'd infinitely recurse and
-        // crash the app on the first split.
+        // Lock immediately so the async dispatch can't queue twice if
+        // layout fires multiple times during the cascade.
         hasBalanced = true
-        setPosition(total / 2, ofDividerAt: 0)
+
+        // Defer to the next runloop turn so the cascading layout pass for
+        // nested splits has time to settle before we touch the divider.
+        // Synchronously calling `setPosition` here fires while child bounds
+        // are still transient: at depth 3+ the innermost split's
+        // `bounds.width` is whatever NSSplitView's default distribution
+        // gave it *before* the parent's own `setPosition` propagates down,
+        // and we'd balance against the wrong total. That's the original
+        // "4th pane is a sliver between P2 and P3" bug — the inner split
+        // committed to a divider position based on a transient narrow
+        // bounds and locked it in.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let total = self.isVertical ? self.bounds.width : self.bounds.height
+            guard total > 0 else { return }
+            self.setPosition(total / 2, ofDividerAt: 0)
+        }
     }
 
     // MARK: - NSSplitViewDelegate
 
     /// Lower bound for divider position (distance from the leading edge of
     /// subview 0). Returning `minPaneSize` means the first pane can never
-    /// shrink below that.
+    /// shrink below that — but relaxed to 0 when the split is too narrow
+    /// to honour both minimums simultaneously, so the clamp can't force
+    /// the divider into a wrong spot during initial balance.
     func splitView(_ splitView: NSSplitView,
                    constrainMinCoordinateOfDividerAt dividerIndex: Int) -> CGFloat {
-        minPaneSize
+        bothPanesFit ? minPaneSize : 0
     }
 
-    /// Upper bound for divider position. Returning
-    /// `total - dividerThickness - minPaneSize` keeps the second pane at
-    /// least `minPaneSize` wide. Falls back to a permissive value if the
-    /// window is too small to honour both minimums simultaneously, so
-    /// extremely narrow windows still render rather than locking up.
+    /// Upper bound for divider position. Same relaxation: when both
+    /// panes can't fit at their minimum, the upper bound goes to `total`
+    /// so any position is allowed.
     func splitView(_ splitView: NSSplitView,
                    constrainMaxCoordinateOfDividerAt dividerIndex: Int) -> CGFloat {
         let total = isVertical ? bounds.width : bounds.height
-        let limit = total - dividerThickness - minPaneSize
-        return max(minPaneSize, limit)
+        return bothPanesFit ? total - dividerThickness - minPaneSize : total
+    }
+
+    private var bothPanesFit: Bool {
+        let total = isVertical ? bounds.width : bounds.height
+        return total >= minPaneSize * 2 + dividerThickness
     }
 }
