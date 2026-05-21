@@ -42,23 +42,41 @@ The build script:
 
 ## Status
 
-Working end-to-end. Daily-driver feature-complete with the polish list still ongoing.
+Daily-driver feature-complete. The small / medium polish items from the original plan have all shipped — what's left is the bigger-features bucket in the [Roadmap](#roadmap) below.
 
+### Terminal & layout
 | Feature | Status |
 |---|---|
 | GPU-accelerated terminal (Metal via libghostty) | ✅ |
-| Tabs (rename, drag-reorder, close, +, ⌘1-⌘9, middle-click close) | ✅ |
-| Split panes (⌘D / ⌘⇧D, ⌘[ / ⌘], focus via click) | ✅ |
-| Saved SSH connections + ⌘K Quick Connect | ✅ |
-| Connections sidebar (⌘S) — folders, drag-reorder, double-click to open | ✅ |
-| SSH jumphost / ProxyJump support per connection | ✅ |
-| Settings (font, size, cursor, theme, opacity, blur) | ✅ |
-| Theme-aware chrome (top bar matches theme) | ✅ |
-| Themes — 18 in Settings dropdown, 512 bundled (rest loadable via `~/.config/ghostty/config`) | ✅ |
-| OSC tab-title updates from the shell | ✅ |
+| Tabs — rename, drag-reorder, per-tab close, +, ⌘1–⌘9, middle-click close | ✅ |
+| Split panes — ⌘D / ⌘⇧D, ⌘[ / ⌘], click-to-focus | ✅ |
+| Drag-to-resize splits with a per-pane minimum so dividers can't squash a pane into a sliver | ✅ |
+| Nested splits balanced correctly at any depth (deferred-balance fix for the depth-3+ sliver bug) | ✅ |
+| Divider positions persist across tab switches *and* app relaunch | ✅ |
 | Find in scrollback (⌘F) | ✅ |
-| Custom about panel + app icon | ✅ |
-| **Session restore** — tabs, splits, working directories survive relaunch | ✅ |
+
+### SSH & connections
+| Feature | Status |
+|---|---|
+| Saved SSH connections + ⌘K Quick Connect palette (dismisses on click outside) | ✅ |
+| Connections sidebar (⌘S) — folders, drag-reorder, double-click to open as new tab | ✅ |
+| SSH jumphost / ProxyJump support per connection (with the `env`-prefix workaround for libghostty's `exec -l` argv[0] mangling) | ✅ |
+
+### Appearance & settings
+| Feature | Status |
+|---|---|
+| Settings panel — font, size, cursor, opacity, blur | ✅ |
+| Theme browser — searchable across **all 512 bundled themes**, with per-row colour preview swatches parsed from the theme file | ✅ |
+| Theme-aware chrome — tab bar, sidebar, and onboarding tint to match the active theme + opacity + blur | ✅ |
+| First-run onboarding — recommended-theme tile picker, opacity + blur preset, keybindings tour | ✅ |
+| Bundled app icon + custom About panel | ✅ |
+
+### Lifecycle & UX
+| Feature | Status |
+|---|---|
+| Command-finished notifications when the user isn't looking (≥ 5 s threshold, suppressed when the pane is focused) | ✅ |
+| OSC tab-title updates from the shell (debounced 80 ms so zsh-theme bursts don't cause flicker) | ✅ |
+| **Session restore** — windows, tabs, splits, divider ratios, and working directories survive relaunch | ✅ |
 
 ## Layout
 
@@ -76,16 +94,17 @@ Resources/
   ghostty/                        Build-script generated (gitignored)
 Sources/TerminalApp/
   TerminalApp.swift               @main + Settings scene
-  AppDelegate.swift               Menu bar, window/tab lifecycle, app icon
-  TerminalWindowController.swift  Per-window: tab bar + surface + chrome
-  GhosttyRuntime.swift            Singleton libghostty app + callbacks
+  AppDelegate.swift               Menu bar, window/tab lifecycle, app icon, onboarding launch
+  TerminalWindowController.swift  Per-window: tab bar + surface + sidebar + chrome
+  GhosttyRuntime.swift            Singleton libghostty app + callbacks (incl. command-finished)
   SurfaceHostView.swift           NSView hosting a ghostty_surface_t
-  SurfaceInput.swift              Mouse + keyboard forwarding
+  SurfaceInput.swift              Mouse + keyboard forwarding (PUA function-key carve-out)
   Session.swift                   Tab model (owns a SplitNode tree)
-  Splits/SplitNode.swift          Binary tree of surfaces + NSSplitView
-  TabBar/                         Custom tab bar (drag-reorder, rename, etc.)
-  SavedConnections/               Connection store + Quick Connect ⌘K
-  Settings/                       AppSettings + Settings window
+  Splits/SplitNode.swift          Binary tree of surfaces + NSSplitView with min-size + ratio persistence
+  TabBar/                         Custom tab bar (drag-reorder, rename, per-tab close)
+  SavedConnections/               Connection store, folders, sidebar (⌘S), Quick Connect (⌘K)
+  Settings/                       AppSettings, settings window, searchable theme browser
+  Onboarding/                     First-run welcome flow
   Search/SearchBar.swift          ⌘F find bar
   Persistence/AppPersistence.swift Session-restore state schema + IO
 ```
