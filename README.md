@@ -49,9 +49,11 @@ Daily-driver feature-complete. The small / medium polish items from the original
 |---|---|
 | GPU-accelerated terminal (Metal via libghostty) | ✅ |
 | Tabs — rename, drag-reorder, per-tab close, +, ⌘1–⌘9, middle-click close | ✅ |
+| Scrollable tab strip with chevron-left/right buttons when tabs overflow; drag-to-edge auto-scrolls | ✅ |
 | Split panes — ⌘D / ⌘⇧D, ⌘[ / ⌘], click-to-focus | ✅ |
+| Custom split view — 8pt grab area, hover highlight, double-click to equalize, smooth proportional resize | ✅ |
 | Drag-to-resize splits with a per-pane minimum so dividers can't squash a pane into a sliver | ✅ |
-| Nested splits balanced correctly at any depth (deferred-balance fix for the depth-3+ sliver bug) | ✅ |
+| Nested splits balanced correctly at any depth | ✅ |
 | Divider positions persist across tab switches *and* app relaunch | ✅ |
 | Find in scrollback (⌘F) | ✅ |
 
@@ -111,7 +113,7 @@ Sources/TerminalApp/
   SurfaceHostView.swift           NSView hosting a ghostty_surface_t
   SurfaceInput.swift              Mouse + keyboard forwarding (PUA function-key carve-out)
   Session.swift                   Tab model (owns a SplitNode tree)
-  Splits/SplitNode.swift          Binary tree of surfaces + NSSplitView with min-size + ratio persistence
+  Splits/SplitNode.swift          Binary tree of surfaces + custom NSView split view (hover, equalize, ratio persistence)
   TabBar/                         Custom tab bar (drag-reorder, rename, per-tab close)
   SavedConnections/               Connection store (global + per-workspace refs), folders, sidebar (⌘S), Quick Connect (⌘K)
   Settings/                       AppSettings, settings window, searchable theme browser
@@ -147,12 +149,9 @@ Branch off `main`, run `xcodegen` after pulling, and submit a PR. The project la
 
 ## Roadmap
 
-Open items — anything currently being worked on is in [Issues](https://github.com/hampusaberg/Gastty/issues). PRs welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+Open items live in [Issues](https://github.com/hampusaberg/Gastty/issues). PRs welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
-The QoL bucket (pane minimums, divider persistence, command-finished notifications, theme browser search) is fully done, and workspaces with cross-workspace connections shipped in v0.5.0.
-
-### On the table
-- **Custom SplitView replacing NSSplitView** — drop NSSplitView in favour of a hand-rolled implementation with thicker hit-area dividers, double-click-to-equalize, and configurable thickness. Lower urgency now that the depth-3 nesting bug is fixed; mostly polish.
+The original Phase-1 plan is done. Everything that started life as a "would be nice" — pane minimums + depth-3 nesting fix, divider persistence, command-finished notifications, searchable 512-theme browser, workspaces with cross-workspace connections, scrollable tab strip, and the custom split view — has shipped. What's left is a single deferred item:
 
 ### Nice-to-have / deferred
 - **Full `NSTextInputClient` (IME)** — proper CJK composition, dead keys, emoji-picker integration. Required for typing in Chinese / Japanese / Korean and for the press-and-hold accent menu. ASCII / Latin typing already works perfectly without it, so this is deferred unless a non-ASCII user shows up needing it. The full implementation pattern (mirroring Ghostty's `NSTextInputClient` extension on `SurfaceView_AppKit.swift`) is ~300 lines plus careful per-IME testing.
