@@ -23,6 +23,13 @@ final class SplitNode {
     var kind: Kind
     weak var parent: SplitNode?
 
+    /// Position of the divider as a fraction of the split's primary axis,
+    /// in the range (0.0, 1.0). Only meaningful when `kind` is `.split`.
+    /// Captured from the live `HalfSplitView` whenever the user drags, so
+    /// switching tabs (which triggers a fresh `render()`) restores the
+    /// user's chosen ratio instead of resetting to 50/50.
+    var dividerRatio: Double = 0.5
+
     init(_ kind: Kind) {
         self.kind = kind
         link(children: kind)
@@ -73,6 +80,12 @@ final class SplitNode {
             let split = HalfSplitView()
             split.dividerStyle = .thin
             split.isVertical = (direction == .horizontal)
+            split.targetRatio = dividerRatio
+            // Capture user drags back into the model so tab-switch /
+            // session-restore preserve the position.
+            split.onRatioChanged = { [weak self] ratio in
+                self?.dividerRatio = ratio
+            }
             split.addArrangedSubview(a.render())
             split.addArrangedSubview(b.render())
             return split
@@ -150,6 +163,17 @@ final class HalfSplitView: NSSplitView, NSSplitViewDelegate {
     /// unusable or hide its surface entirely.
     private let minPaneSize: CGFloat = 80
 
+    /// Initial divider ratio applied on first layout. Defaults to 50/50 for
+    /// a freshly-created split; the owning `SplitNode` overrides this with
+    /// a persisted value when restoring sessions or re-rendering across tab
+    /// switches.
+    var targetRatio: Double = 0.5
+
+    /// Called whenever the user drags the divider. The owning `SplitNode`
+    /// uses this to capture the new ratio back into the model so it
+    /// survives subsequent renders.
+    var onRatioChanged: ((Double) -> Void)?
+
     private var hasBalanced = false
 
     override init(frame frameRect: NSRect) {
@@ -157,9 +181,21 @@ final class HalfSplitView: NSSplitView, NSSplitViewDelegate {
         // `NSSplitView.delegate` is a `weak var`, so self-delegating is
         // safe (no retain cycle).
         delegate = self
+        // Observe ourselves for divider-resize events. AppKit doesn't
+        // expose a dedicated "user dragged" hook, so we listen to all
+        // subview-resize notifications and gate by `NSApp.currentEvent`
+        // to distinguish drag from programmatic / autolayout changes.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSubviewResize(_:)),
+            name: NSSplitView.didResizeSubviewsNotification,
+            object: self
+        )
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 
     override func layout() {
         super.layout()
@@ -182,8 +218,34 @@ final class HalfSplitView: NSSplitView, NSSplitViewDelegate {
             guard let self else { return }
             let total = self.isVertical ? self.bounds.width : self.bounds.height
             guard total > 0 else { return }
-            self.setPosition(total / 2, ofDividerAt: 0)
+            self.setPosition(total * self.targetRatio, ofDividerAt: 0)
         }
+    }
+
+    @objc private func handleSubviewResize(_ note: Notification) {
+        // Only capture ratio updates while the user is actively dragging
+        // the divider. `NSApp.currentEvent` is a mouse-drag/up event
+        // during a user drag; it's nil or a different type during window
+        // resize, programmatic `setPosition`, autolayout, etc.
+        guard let event = NSApp.currentEvent else { return }
+        switch event.type {
+        case .leftMouseDragged, .leftMouseUp:
+            break
+        default:
+            return
+        }
+        guard arrangedSubviews.count == 2 else { return }
+        let total = isVertical ? bounds.width : bounds.height
+        guard total > 0 else { return }
+        let firstSize = isVertical
+            ? arrangedSubviews[0].frame.size.width
+            : arrangedSubviews[0].frame.size.height
+        let ratio = max(0.05, min(0.95, firstSize / total))
+        // Skip near-noise changes — saves churn on every pixel of a drag
+        // and keeps the model from being marked dirty for trivial moves.
+        guard abs(ratio - targetRatio) > 0.005 else { return }
+        targetRatio = ratio
+        onRatioChanged?(ratio)
     }
 
     // MARK: - NSSplitViewDelegate

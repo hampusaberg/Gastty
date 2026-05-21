@@ -67,7 +67,7 @@ final class Session {
         case .leaf(let cwd):
             let surface = SurfaceHostView(runtime: runtime, workingDirectory: cwd)
             return (SplitNode(.leaf(surface)), surface)
-        case .split(let orientation, let first, let second):
+        case .split(let orientation, let first, let second, let ratio):
             let (firstNode, firstLeaf) = buildTree(first, runtime: runtime)
             let (secondNode, _) = buildTree(second, runtime: runtime)
             let direction: NSUserInterfaceLayoutOrientation =
@@ -75,6 +75,7 @@ final class Session {
             let node = SplitNode(.split(direction: direction,
                                         first: firstNode,
                                         second: secondNode))
+            node.dividerRatio = ratio
             return (node, firstLeaf)
         }
     }
@@ -100,7 +101,8 @@ final class Session {
                 direction == .horizontal ? .horizontal : .vertical
             return .split(orientation: orientation,
                           first: persistedTree(first),
-                          second: persistedTree(second))
+                          second: persistedTree(second),
+                          ratio: node.dividerRatio)
         }
     }
 
