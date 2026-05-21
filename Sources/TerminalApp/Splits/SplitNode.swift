@@ -261,7 +261,14 @@ final class HalfSplitView: NSView {
         guard total > 0 else { return }
 
         let clamped = clampedRatio(targetRatio, total: total)
-        let dividerPos = total * CGFloat(clamped)
+        // Round the divider position to whole points so every child gets
+        // an integer-aligned origin. Without this, a ratio like 0.5 on
+        // a 775pt bar lands the second pane at x=387.5 — a sub-pixel
+        // origin — which makes the Metal-rendered terminal text inside
+        // that pane blurry on Retina. The first pane stays sharp because
+        // its origin is (0, 0), but every subsequent pane drifts off the
+        // pixel grid.
+        let dividerPos = (total * CGFloat(clamped)).rounded()
         let halfHit = dividerHitThickness / 2
 
         if isVertical {
@@ -279,7 +286,7 @@ final class HalfSplitView: NSView {
         } else {
             // Stacked: first on top (high y in non-flipped coords), second
             // on bottom (y=0), divider strip centred on the boundary.
-            let firstHeight = bounds.height * CGFloat(clamped)
+            let firstHeight = (bounds.height * CGFloat(clamped)).rounded()
             first.frame = NSRect(x: 0,
                                   y: bounds.height - firstHeight,
                                   width: bounds.width,
@@ -356,7 +363,10 @@ final class HalfSplitView: NSView {
             return
         }
         let clamped = clampedRatio(target, total: total)
-        let dividerPos = total * CGFloat(clamped)
+        // Same rounding rule as `layoutChildren` — keep origins
+        // integer-aligned so the Metal-rendered text in each pane stays
+        // crisp instead of sub-pixel-drawn.
+        let dividerPos = (total * CGFloat(clamped)).rounded()
         let halfHit = dividerHitThickness / 2
 
         // Build the destination frames using the same math as
@@ -378,7 +388,7 @@ final class HalfSplitView: NSView {
                                     width: dividerHitThickness,
                                     height: bounds.height)
         } else {
-            let firstHeight = bounds.height * CGFloat(clamped)
+            let firstHeight = (bounds.height * CGFloat(clamped)).rounded()
             firstTarget = NSRect(x: 0, y: bounds.height - firstHeight,
                                   width: bounds.width, height: firstHeight)
             secondTarget = NSRect(x: 0, y: 0,
