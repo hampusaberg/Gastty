@@ -10,7 +10,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let fontSizeStepper = NSStepper()
     private let fontSizeField = NSTextField()
     private let cursorPopup = NSPopUpButton()
-    private let themePopup = NSPopUpButton()
+    /// Button showing the current theme name; clicking opens the
+    /// searchable `ThemeBrowserController` sheet for picking any of the
+    /// 512 bundled themes.
+    private let themeButton = NSButton()
     private let opacitySlider = NSSlider()
     private let opacityLabel = NSTextField(labelWithString: "100%")
     private let blurSegments = NSSegmentedControl(
@@ -75,14 +78,19 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         }
         grid.addRow(with: [NSTextField(labelWithString: "Cursor:"), cursorPopup])
 
-        // Theme
-        themePopup.target = self
-        themePopup.action = #selector(themeChanged(_:))
-        themePopup.addItem(withTitle: "(none)")
-        for name in availableThemes() {
-            themePopup.addItem(withTitle: name)
-        }
-        grid.addRow(with: [NSTextField(labelWithString: "Theme:"), themePopup])
+        // Theme — opens the searchable browser. The button label is the
+        // current theme so users can see at a glance which one is active
+        // without having to open the sheet first.
+        themeButton.bezelStyle = .rounded
+        themeButton.target = self
+        themeButton.action = #selector(openThemeBrowser(_:))
+        themeButton.alignment = .left
+        themeButton.imagePosition = .imageRight
+        themeButton.image = NSImage(systemSymbolName: "chevron.down",
+                                    accessibilityDescription: nil)
+        themeButton.imageScaling = .scaleProportionallyDown
+        themeButton.widthAnchor.constraint(equalToConstant: 280).isActive = true
+        grid.addRow(with: [NSTextField(labelWithString: "Theme:"), themeButton])
 
         // Opacity — extended down to 20% so the user can really see through
         // when they want to. Lower than that and the text is hard to read.
@@ -126,7 +134,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         fontSizeStepper.doubleValue = s.fontSize
         fontSizeField.stringValue = String(Int(s.fontSize))
         cursorPopup.selectItem(withTitle: s.cursorStyle.rawValue.capitalized)
-        themePopup.selectItem(withTitle: s.theme.isEmpty ? "(none)" : s.theme)
+        themeButton.title = s.theme.isEmpty ? "Default (no theme)" : s.theme
         opacitySlider.doubleValue = s.backgroundOpacity
         opacityLabel.stringValue = "\(Int(s.backgroundOpacity * 100))%"
         blurSegments.selectedSegment = Self.segmentIndex(for: s.blurLevel)
@@ -150,44 +158,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    // MARK: - Themes shown in the picker
-    //
-    // libghostty bundles 500+ themes via the resources directory, but we
-    // intentionally show a small curated list — the ones people actually
-    // reach for. Power users can still set `theme = Something Else` in
-    // `~/.config/ghostty/config` and libghostty will find it.
-
-    private static let recommendedThemes: [String] = [
-        "Atom One Dark",
-        "Atom One Light",
-        "Catppuccin Frappe",
-        "Catppuccin Latte",
-        "Catppuccin Macchiato",
-        "Catppuccin Mocha",
-        "Dracula",
-        "Dracula+",
-        "Gruvbox Dark",
-        "Gruvbox Light",
-        "Monokai Classic",
-        "Monokai Pro",
-        "Nord",
-        "Solarized Dark Patched",
-        "iTerm2 Solarized Dark",
-        "iTerm2 Solarized Light",
-        "TokyoNight",
-        "TokyoNight Storm",
-    ]
-
-    private func availableThemes() -> [String] {
-        // Filter the curated list down to whatever the bundle actually has
-        // (so a typo in our list doesn't show a broken entry).
-        guard let resPath = Bundle.main.resourcePath else { return [] }
-        let themesDir = (resPath as NSString).appendingPathComponent("ghostty/themes")
-        let fm = FileManager.default
-        return Self.recommendedThemes.filter { name in
-            fm.fileExists(atPath: (themesDir as NSString).appendingPathComponent(name))
-        }
-    }
+    // The curated short-list of themes that used to live here is gone —
+    // the searchable `ThemeBrowserController` now backs the theme picker
+    // and surfaces all 512 bundled themes. `ThemeRepository` handles
+    // enumeration + per-theme colour parsing.
 
     // MARK: - Actions
 
@@ -215,9 +189,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    @objc private func themeChanged(_ sender: Any?) {
-        let title = themePopup.titleOfSelectedItem ?? "(none)"
-        SettingsStore.shared.update { $0.theme = title == "(none)" ? "" : title }
+    @objc private func openThemeBrowser(_ sender: Any?) {
+        guard let parent = window else { return }
+        let current = SettingsStore.shared.settings.theme
+        ThemeBrowserController.present(over: parent, current: current) { [weak self] picked in
+            guard let self, let picked else { return }
+            SettingsStore.shared.update { $0.theme = picked }
+            self.themeButton.title = picked.isEmpty ? "Default (no theme)" : picked
+        }
     }
 
     @objc private func opacityChanged(_ sender: Any?) {

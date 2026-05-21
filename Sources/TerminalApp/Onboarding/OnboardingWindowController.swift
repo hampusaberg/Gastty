@@ -266,6 +266,11 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
     ]
 
     private var themeTiles: [ThemeTileView] = []
+    /// Status text shown next to the "Browse all themes…" link. Hidden
+    /// when one of the 6 recommended tiles is the active selection;
+    /// reveals "Custom: <name>" when the user picks a theme via the
+    /// browser that isn't one of the tiles.
+    private let customThemeLabel = NSTextField(labelWithString: "")
 
     private func makeAppearanceStep() -> NSView {
         let stack = NSStackView()
@@ -306,7 +311,14 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
         }
         if !row.isEmpty { grid.addRow(with: row) }
         stack.addArrangedSubview(grid)
-        stack.setCustomSpacing(24, after: grid)
+        stack.setCustomSpacing(10, after: grid)
+
+        // "Browse all themes…" row — opens the full searchable picker as
+        // a sheet over this window. Keeps the recommended tiles above as
+        // the primary path; the link is for users who want to explore.
+        let browseRow = makeBrowseRow()
+        stack.addArrangedSubview(browseRow)
+        stack.setCustomSpacing(20, after: browseRow)
 
         // Controls row: opacity + blur side by side
         let controls = NSStackView()
@@ -320,6 +332,51 @@ final class OnboardingWindowController: NSWindowController, NSWindowDelegate {
         stack.addArrangedSubview(controls)
 
         return stack
+    }
+
+    private func makeBrowseRow() -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 10
+
+        let button = NSButton()
+        button.title = "Browse all themes…"
+        button.bezelStyle = .inline
+        button.controlSize = .small
+        button.target = self
+        button.action = #selector(openThemeBrowser(_:))
+
+        customThemeLabel.font = .systemFont(ofSize: 12)
+        customThemeLabel.textColor = .tertiaryLabelColor
+        customThemeLabel.lineBreakMode = .byTruncatingTail
+        refreshCustomThemeLabel()
+
+        row.addArrangedSubview(button)
+        row.addArrangedSubview(customThemeLabel)
+        return row
+    }
+
+    @objc private func openThemeBrowser(_ sender: Any?) {
+        guard let parent = window else { return }
+        ThemeBrowserController.present(over: parent, current: selectedTheme) { [weak self] picked in
+            guard let self, let picked, !picked.isEmpty else { return }
+            self.selectedTheme = picked
+            self.themeTiles.forEach { $0.refreshSelection(selectedName: picked) }
+            self.refreshCustomThemeLabel()
+        }
+    }
+
+    /// Show "Custom: <name>" when the active selection isn't one of the
+    /// six recommended tiles. When it is, the label is empty so the row
+    /// stays clean.
+    private func refreshCustomThemeLabel() {
+        let isTile = Self.themeOptions.contains { $0.name == selectedTheme }
+        if isTile {
+            customThemeLabel.stringValue = ""
+        } else {
+            customThemeLabel.stringValue = "Selected: \(selectedTheme)"
+        }
     }
 
     private func makeOpacityControl() -> NSView {
