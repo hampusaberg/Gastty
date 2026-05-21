@@ -3,8 +3,24 @@ name: CI
 on:
   push:
     branches: [main]
+    # Doc-only and metadata-only changes don't affect the build or the
+    # binary, so skip CI for them. Keeps the Actions tab readable and
+    # gives a green main bar straight after a README edit. Note: if
+    # branch protection ever requires CI as a status check, this will
+    # leave doc-only PRs unable to merge — switch to a workflow_run
+    # neutral job at that point.
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/dependabot.yml'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/dependabot.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
