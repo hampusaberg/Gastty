@@ -4,12 +4,8 @@ import AppKit
 ///
 /// A leaf wraps one `SurfaceHostView`. A split wraps two children plus a
 /// direction. Rendering produces an NSView tree where leaves are the real
-/// surface views and inner nodes are `NSSplitView`s.
-///
-/// Note: this is the simple "plain NSSplitView" version. We attempted
-/// caching the split view and tracking divider ratios in earlier rounds,
-/// but those layers caused structural bugs when nesting splits. The plain
-/// version reliably lets you split a pane any number of times, like Ghostty.
+/// surface views and inner nodes are `HalfSplitView`s (a custom split
+/// view — see below).
 final class SplitNode {
     enum Kind {
         case leaf(SurfaceHostView)
@@ -78,7 +74,6 @@ final class SplitNode {
             return surface
         case .split(let direction, let a, let b):
             let split = HalfSplitView()
-            split.dividerStyle = .thin
             split.isVertical = (direction == .horizontal)
             split.targetRatio = dividerRatio
             // Capture user drags back into the model so tab-switch /
@@ -86,8 +81,7 @@ final class SplitNode {
             split.onRatioChanged = { [weak self] ratio in
                 self?.dividerRatio = ratio
             }
-            split.addArrangedSubview(a.render())
-            split.addArrangedSubview(b.render())
+            split.setChildren(first: a.render(), second: b.render())
             return split
         }
     }
@@ -139,138 +133,388 @@ final class SplitNode {
     }
 }
 
-/// NSSplitView subclass that forces a 50/50 split on its first non-zero
-/// layout pass and enforces a per-pane minimum so a stray drag can't
-/// shrink a terminal to a sliver.
+// MARK: - HalfSplitView (custom)
+
+/// Hand-rolled two-pane split view. Replaces the previous NSSplitView
+/// subclass to get rid of NSSplitView's quirks: thin un-grabbable
+/// dividers, weird default subview distribution, the deferred initial
+/// balance gymnastics we needed for nested splits, and the indirect
+/// drag-detection via notification + `NSApp.currentEvent` polling.
 ///
-/// Past attempts at min-size enforcement reached for
-/// `splitView(_:resizeSubviewsWithOldSize:)`, which means seizing layout
-/// control wholesale and breaks drag-to-resize. The two
-/// `constrain…CoordinateOfDividerAt` delegate methods are the right hook:
-/// they only clamp where the divider can land, leaving NSSplitView's own
-/// drag/animate machinery untouched.
+/// What this gives you:
 ///
-/// Without this, NSSplitView's default layout also gives the first added
-/// subview its existing frame width and the second only the leftover,
-/// which cascades through nested splits into the "wide-left, tiny-right"
-/// shape we used to ship. After the initial balance the flag locks so
-/// user-dragged dividers aren't overridden.
-final class HalfSplitView: NSSplitView, NSSplitViewDelegate {
+///   - **Thicker hit area** (8pt) wrapped around a 1pt visible line.
+///     Easy to grab without needing pixel-perfect aim. Visible
+///     thickness stays minimal so the chrome isn't loud.
+///   - **Hover feedback**: the line brightens and thickens slightly
+///     when the mouse is over the divider.
+///   - **Double-click to equalise**: snaps back to 50/50 with a short
+///     animation.
+///   - **Proportional resize**: when the parent (window/parent split)
+///     resizes, the divider keeps its ratio rather than its absolute
+///     position. Layout recomputes from `targetRatio` × axis every
+///     pass, so this is automatic.
+///   - **Min pane size** (80pt) enforced by clamping the ratio in
+///     both layout and drag. Below 2×80+gap the clamp relaxes so
+///     extremely narrow windows still render.
+///
+/// API is matched to what `SplitNode.render()` needs:
+///   - `isVertical: Bool` — `true` means the divider is a vertical
+///     line and children sit side-by-side (= horizontal split). Matches
+///     NSSplitView's naming.
+///   - `targetRatio: Double` — first pane's size as a fraction of the
+///     primary axis (in (0, 1)). 0.5 by default; restored from
+///     `SplitNode.dividerRatio` on render.
+///   - `onRatioChanged: ((Double) -> Void)?` — fires on every drag
+///     update so the model captures the live position; SplitNode
+///     writes back to `dividerRatio`.
+///   - `setChildren(first:second:)` — install the two children.
+final class HalfSplitView: NSView {
 
-    /// Minimum pane size in points. ~5–6 terminal cells at the default
-    /// font — small enough that the user can still squash a pane down
-    /// hard, large enough that an accidental drag doesn't make a pane
-    /// unusable or hide its surface entirely.
-    private let minPaneSize: CGFloat = 80
+    // MARK: - Public configuration
 
-    /// Initial divider ratio applied on first layout. Defaults to 50/50 for
-    /// a freshly-created split; the owning `SplitNode` overrides this with
-    /// a persisted value when restoring sessions or re-rendering across tab
-    /// switches.
-    var targetRatio: Double = 0.5
+    /// `true` = divider is a vertical line, children laid out horizontally
+    /// (side-by-side). `false` = horizontal divider, children stacked
+    /// (first on top, second on bottom).
+    var isVertical: Bool = true {
+        didSet {
+            if oldValue != isVertical {
+                divider.needsDisplay = true
+                needsLayout = true
+            }
+        }
+    }
 
-    /// Called whenever the user drags the divider. The owning `SplitNode`
-    /// uses this to capture the new ratio back into the model so it
-    /// survives subsequent renders.
+    /// First pane's size as a fraction of the primary axis. Clamped at
+    /// layout time so neither pane drops below `minPaneSize`.
+    var targetRatio: Double = 0.5 {
+        didSet {
+            if oldValue != targetRatio {
+                needsLayout = true
+            }
+        }
+    }
+
+    /// Fires every time a user drag changes the ratio. The owning
+    /// `SplitNode` uses this to persist the position back to the model.
     var onRatioChanged: ((Double) -> Void)?
 
-    private var hasBalanced = false
+    // MARK: - Tunables
+
+    /// Floor for both panes' size on the divider's axis. ~5–6 cells at
+    /// the default font — small enough that the user can still squash a
+    /// pane down hard, big enough that a stray drag can't make a pane
+    /// unusable.
+    private let minPaneSize: CGFloat = 80
+
+    /// How wide the divider's mouse-event hit area is. Generous so it's
+    /// easy to grab.
+    private let dividerHitThickness: CGFloat = 8
+
+    // MARK: - State
+
+    private var firstChild: NSView?
+    private var secondChild: NSView?
+    private let divider = DividerView()
+
+    private var dragStartRatio: Double = 0.5
+    private var dragStartMouseInSplit: NSPoint = .zero
+
+    // MARK: - Init
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        // `NSSplitView.delegate` is a `weak var`, so self-delegating is
-        // safe (no retain cycle).
-        delegate = self
-        // Observe ourselves for divider-resize events. AppKit doesn't
-        // expose a dedicated "user dragged" hook, so we listen to all
-        // subview-resize notifications and gate by `NSApp.currentEvent`
-        // to distinguish drag from programmatic / autolayout changes.
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleSubviewResize(_:)),
-            name: NSSplitView.didResizeSubviewsNotification,
-            object: self
-        )
+        wantsLayer = true
+        divider.splitView = self
+        addSubview(divider)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    deinit { NotificationCenter.default.removeObserver(self) }
+    // MARK: - Children
+
+    /// Install or replace the two child views. The divider stays on
+    /// top in the subview order so its hit area can extend a few
+    /// points into each child's territory without losing clicks.
+    func setChildren(first: NSView, second: NSView) {
+        firstChild?.removeFromSuperview()
+        secondChild?.removeFromSuperview()
+        addSubview(first, positioned: .below, relativeTo: divider)
+        addSubview(second, positioned: .below, relativeTo: divider)
+        first.translatesAutoresizingMaskIntoConstraints = true
+        second.translatesAutoresizingMaskIntoConstraints = true
+        firstChild = first
+        secondChild = second
+        needsLayout = true
+    }
+
+    // MARK: - Layout
 
     override func layout() {
         super.layout()
-        guard !hasBalanced, arrangedSubviews.count == 2 else { return }
-        // Lock immediately so the async dispatch can't queue twice if
-        // layout fires multiple times during the cascade.
-        hasBalanced = true
-
-        // Defer to the next runloop turn so the cascading layout pass for
-        // nested splits has time to settle before we touch the divider.
-        // Synchronously calling `setPosition` here fires while child bounds
-        // are still transient: at depth 3+ the innermost split's
-        // `bounds.width` is whatever NSSplitView's default distribution
-        // gave it *before* the parent's own `setPosition` propagates down,
-        // and we'd balance against the wrong total. That's the original
-        // "4th pane is a sliver between P2 and P3" bug — the inner split
-        // committed to a divider position based on a transient narrow
-        // bounds and locked it in.
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let total = self.isVertical ? self.bounds.width : self.bounds.height
-            guard total > 0 else { return }
-            self.setPosition(total * self.targetRatio, ofDividerAt: 0)
-        }
+        layoutChildren()
     }
 
-    @objc private func handleSubviewResize(_ note: Notification) {
-        // Only capture ratio updates while the user is actively dragging
-        // the divider. `NSApp.currentEvent` is a mouse-drag/up event
-        // during a user drag; it's nil or a different type during window
-        // resize, programmatic `setPosition`, autolayout, etc.
-        guard let event = NSApp.currentEvent else { return }
-        switch event.type {
-        case .leftMouseDragged, .leftMouseUp:
-            break
-        default:
-            return
-        }
-        guard arrangedSubviews.count == 2 else { return }
+    private func layoutChildren() {
+        guard let first = firstChild, let second = secondChild else { return }
         let total = isVertical ? bounds.width : bounds.height
         guard total > 0 else { return }
-        let firstSize = isVertical
-            ? arrangedSubviews[0].frame.size.width
-            : arrangedSubviews[0].frame.size.height
-        let ratio = max(0.05, min(0.95, firstSize / total))
-        // Skip near-noise changes — saves churn on every pixel of a drag
-        // and keeps the model from being marked dirty for trivial moves.
-        guard abs(ratio - targetRatio) > 0.005 else { return }
-        targetRatio = ratio
-        onRatioChanged?(ratio)
+
+        let clamped = clampedRatio(targetRatio, total: total)
+        let dividerPos = total * CGFloat(clamped)
+        let halfHit = dividerHitThickness / 2
+
+        if isVertical {
+            // Side-by-side: first on the left, second on the right, divider
+            // is a vertical strip centred on dividerPos.
+            first.frame = NSRect(x: 0, y: 0,
+                                  width: dividerPos,
+                                  height: bounds.height)
+            second.frame = NSRect(x: dividerPos, y: 0,
+                                   width: bounds.width - dividerPos,
+                                   height: bounds.height)
+            divider.frame = NSRect(x: dividerPos - halfHit, y: 0,
+                                    width: dividerHitThickness,
+                                    height: bounds.height)
+        } else {
+            // Stacked: first on top (high y in non-flipped coords), second
+            // on bottom (y=0), divider strip centred on the boundary.
+            let firstHeight = bounds.height * CGFloat(clamped)
+            first.frame = NSRect(x: 0,
+                                  y: bounds.height - firstHeight,
+                                  width: bounds.width,
+                                  height: firstHeight)
+            second.frame = NSRect(x: 0, y: 0,
+                                   width: bounds.width,
+                                   height: bounds.height - firstHeight)
+            divider.frame = NSRect(x: 0,
+                                    y: bounds.height - firstHeight - halfHit,
+                                    width: bounds.width,
+                                    height: dividerHitThickness)
+        }
     }
 
-    // MARK: - NSSplitViewDelegate
-
-    /// Lower bound for divider position (distance from the leading edge of
-    /// subview 0). Returning `minPaneSize` means the first pane can never
-    /// shrink below that — but relaxed to 0 when the split is too narrow
-    /// to honour both minimums simultaneously, so the clamp can't force
-    /// the divider into a wrong spot during initial balance.
-    func splitView(_ splitView: NSSplitView,
-                   constrainMinCoordinateOfDividerAt dividerIndex: Int) -> CGFloat {
-        bothPanesFit ? minPaneSize : 0
+    /// Clamp `ratio` so neither pane drops below `minPaneSize`. When the
+    /// split is too narrow for both minimums to hold simultaneously the
+    /// clamp relaxes to (0, 1) so the view still renders.
+    private func clampedRatio(_ ratio: Double, total: CGFloat) -> Double {
+        guard total > 0 else { return ratio }
+        if total < minPaneSize * 2 + 1 {
+            return max(0.0, min(1.0, ratio))
+        }
+        let minR = Double(minPaneSize) / Double(total)
+        let maxR = 1 - minR
+        return max(minR, min(maxR, ratio))
     }
 
-    /// Upper bound for divider position. Same relaxation: when both
-    /// panes can't fit at their minimum, the upper bound goes to `total`
-    /// so any position is allowed.
-    func splitView(_ splitView: NSSplitView,
-                   constrainMaxCoordinateOfDividerAt dividerIndex: Int) -> CGFloat {
+    // MARK: - Drag (called by DividerView)
+
+    fileprivate func beginDividerDrag(at locationInWindow: NSPoint) {
+        dragStartRatio = targetRatio
+        dragStartMouseInSplit = convert(locationInWindow, from: nil)
+    }
+
+    fileprivate func updateDividerDrag(at locationInWindow: NSPoint) {
         let total = isVertical ? bounds.width : bounds.height
-        return bothPanesFit ? total - dividerThickness - minPaneSize : total
+        guard total > 0 else { return }
+        let mouseInSplit = convert(locationInWindow, from: nil)
+
+        // Compute delta along the divider's movement axis. For the
+        // stacked layout we invert the y delta because AppKit's
+        // non-flipped y grows upward but the first pane is on TOP — so
+        // mouse-up means the divider goes up and the first pane shrinks.
+        let delta: CGFloat
+        if isVertical {
+            delta = mouseInSplit.x - dragStartMouseInSplit.x
+        } else {
+            delta = -(mouseInSplit.y - dragStartMouseInSplit.y)
+        }
+
+        let proposed = dragStartRatio + Double(delta) / Double(total)
+        let newRatio = clampedRatio(proposed, total: total)
+        guard abs(newRatio - targetRatio) > 0.001 else { return }
+        targetRatio = newRatio
+        onRatioChanged?(newRatio)
     }
 
-    private var bothPanesFit: Bool {
+    fileprivate func endDividerDrag() {
+        // No-op: we ship updates on every `updateDividerDrag` call.
+    }
+
+    /// Double-click handler — equalise the split with a short animation.
+    fileprivate func equalizeRatio() {
+        let target: Double = 0.5
+        guard let first = firstChild, let second = secondChild else {
+            targetRatio = target
+            onRatioChanged?(target)
+            return
+        }
         let total = isVertical ? bounds.width : bounds.height
-        return total >= minPaneSize * 2 + dividerThickness
+        guard total > 0 else {
+            targetRatio = target
+            onRatioChanged?(target)
+            return
+        }
+        let clamped = clampedRatio(target, total: total)
+        let dividerPos = total * CGFloat(clamped)
+        let halfHit = dividerHitThickness / 2
+
+        // Build the destination frames using the same math as
+        // `layoutChildren`, then animate frames into them. We update
+        // `targetRatio` synchronously so any layout pass triggered
+        // during the animation reads the new value.
+        targetRatio = clamped
+
+        let firstTarget: NSRect
+        let secondTarget: NSRect
+        let dividerTarget: NSRect
+        if isVertical {
+            firstTarget = NSRect(x: 0, y: 0,
+                                  width: dividerPos, height: bounds.height)
+            secondTarget = NSRect(x: dividerPos, y: 0,
+                                   width: bounds.width - dividerPos,
+                                   height: bounds.height)
+            dividerTarget = NSRect(x: dividerPos - halfHit, y: 0,
+                                    width: dividerHitThickness,
+                                    height: bounds.height)
+        } else {
+            let firstHeight = bounds.height * CGFloat(clamped)
+            firstTarget = NSRect(x: 0, y: bounds.height - firstHeight,
+                                  width: bounds.width, height: firstHeight)
+            secondTarget = NSRect(x: 0, y: 0,
+                                   width: bounds.width,
+                                   height: bounds.height - firstHeight)
+            dividerTarget = NSRect(x: 0,
+                                    y: bounds.height - firstHeight - halfHit,
+                                    width: bounds.width,
+                                    height: dividerHitThickness)
+        }
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.18
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            first.animator().frame = firstTarget
+            second.animator().frame = secondTarget
+            divider.animator().frame = dividerTarget
+        }, completionHandler: nil)
+
+        onRatioChanged?(clamped)
+    }
+}
+
+// MARK: - DividerView
+
+/// The strip that lives between the two panes. The view itself is
+/// `dividerHitThickness` wide along the divider's axis (8pt by default)
+/// so it's easy to grab; the visible line is drawn 1pt thick in the
+/// centre. The owning `HalfSplitView` handles all positioning and the
+/// actual ratio math — this view only tracks mouse interaction.
+private final class DividerView: NSView {
+
+    weak var splitView: HalfSplitView?
+
+    private var trackingArea: NSTrackingArea?
+    private var isHovered = false {
+        didSet {
+            if oldValue != isHovered { needsDisplay = true }
+        }
+    }
+    private var isDragging = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override var isOpaque: Bool { false }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = trackingArea {
+            removeTrackingArea(existing)
+        }
+        let opts: NSTrackingArea.Options = [
+            .activeInActiveApp,
+            .mouseEnteredAndExited,
+            .cursorUpdate,
+            .inVisibleRect,
+        ]
+        let area = NSTrackingArea(rect: bounds, options: opts,
+                                   owner: self, userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        guard let sv = splitView else {
+            super.cursorUpdate(with: event)
+            return
+        }
+        if sv.isVertical {
+            NSCursor.resizeLeftRight.set()
+        } else {
+            NSCursor.resizeUpDown.set()
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) { isHovered = true }
+    override func mouseExited(with event: NSEvent) {
+        // Don't drop the hover state while a drag is still in flight —
+        // the cursor will travel outside the original bounds.
+        if !isDragging { isHovered = false }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 {
+            splitView?.equalizeRatio()
+            return
+        }
+        isDragging = true
+        isHovered = true
+        splitView?.beginDividerDrag(at: event.locationInWindow)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        splitView?.updateDividerDrag(at: event.locationInWindow)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        isDragging = false
+        splitView?.endDividerDrag()
+        // Re-evaluate hover state — the cursor may have wandered out of
+        // our bounds during the drag.
+        let mouseInSelf = convert(event.locationInWindow, from: nil)
+        isHovered = bounds.contains(mouseInSelf)
+    }
+
+    // MARK: - Drawing
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let sv = splitView else { return }
+        let lineColor: NSColor
+        let lineWidth: CGFloat
+        if isHovered || isDragging {
+            lineColor = NSColor.controlAccentColor.withAlphaComponent(0.6)
+            lineWidth = 2
+        } else {
+            lineColor = NSColor.separatorColor.withAlphaComponent(0.5)
+            lineWidth = 1
+        }
+        lineColor.setStroke()
+        let path = NSBezierPath()
+        path.lineWidth = lineWidth
+        if sv.isVertical {
+            let x = bounds.midX
+            path.move(to: NSPoint(x: x, y: 0))
+            path.line(to: NSPoint(x: x, y: bounds.height))
+        } else {
+            let y = bounds.midY
+            path.move(to: NSPoint(x: 0, y: y))
+            path.line(to: NSPoint(x: bounds.width, y: y))
+        }
+        path.stroke()
     }
 }
