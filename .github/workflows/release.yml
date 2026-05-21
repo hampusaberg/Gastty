@@ -195,13 +195,15 @@ jobs:
 
           # Write the private key to a temp file. `sign_update` reads
           # from file or keychain; CI runners don't have a keychain.
-          # `tr -d` strips surrounding whitespace (common pasting hazard)
-          # without touching the key contents — Sparkle's key is a
-          # single base64 line of [A-Za-z0-9+/=].
+          # `tr -dc` strips everything that isn't a valid base64
+          # character — Sparkle's key is a single line of
+          # [A-Za-z0-9+/=]. This rescues the secret from common
+          # copy-paste mishaps: trailing newlines, surrounding
+          # whitespace, or zsh's `%` marker for unterminated lines.
           KEY_FILE=$(mktemp)
-          printf '%s' "$SPARKLE_PRIVATE_KEY" | tr -d ' \n\r\t' > "$KEY_FILE"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | tr -dc 'A-Za-z0-9+/=' > "$KEY_FILE"
           KEY_LEN=$(wc -c < "$KEY_FILE")
-          echo "Key file length: $KEY_LEN bytes"
+          echo "Key file length: $KEY_LEN bytes (after base64 normalisation)"
 
           DMG="Gastty-${{ steps.tag.outputs.name }}.dmg"
           if [ ! -f "$DMG" ]; then
