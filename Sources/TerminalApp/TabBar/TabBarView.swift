@@ -23,6 +23,7 @@ final class TabBarView: NSView {
     private var itemSizeConstraints: [UUID: [NSLayoutConstraint]] = [:]
     private let stack = NSStackView()
     private let newTabButton = NSButton()
+    let workspaceSwitcher = WorkspaceSwitcherView()
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: 30)
@@ -52,15 +53,20 @@ final class TabBarView: NSView {
         newTabButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(newTabButton)
 
+        workspaceSwitcher.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(workspaceSwitcher)
+
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: newTabButton.leadingAnchor, constant: -6),
             newTabButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            newTabButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            newTabButton.trailingAnchor.constraint(equalTo: workspaceSwitcher.leadingAnchor, constant: -8),
             newTabButton.widthAnchor.constraint(equalToConstant: 22),
             newTabButton.heightAnchor.constraint(equalToConstant: 22),
+            workspaceSwitcher.centerYAnchor.constraint(equalTo: centerYAnchor),
+            workspaceSwitcher.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
     }
 

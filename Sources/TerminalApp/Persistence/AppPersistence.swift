@@ -116,14 +116,12 @@ enum AppPersistence {
         }
     }
 
+    /// Window/tab state lives under the active workspace's directory so
+    /// each workspace remembers its own open tabs across launches AND
+    /// workspace switches. `WorkspaceStore.activeWorkspaceDirectory`
+    /// ensures the folder exists.
     private static func storeURL() -> URL? {
-        let fm = FileManager.default
-        guard let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.hampusaberg.Gastty"
-        let dir = base.appendingPathComponent(bundleID, isDirectory: true)
-        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("state.json")
+        WorkspaceStore.activeWorkspaceDirectory()?
+            .appendingPathComponent("state.json")
     }
 }

@@ -20,6 +20,20 @@ final class ConnectionStore {
 
     private init() {
         load()
+        // When the active workspace changes, reload our list from the
+        // new workspace's connections.json so the sidebar / Quick Connect
+        // / settings window all reflect the right workspace immediately.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(activeWorkspaceDidSwitch(_:)),
+            name: WorkspaceStore.didSwitch,
+            object: nil
+        )
+    }
+
+    @objc private func activeWorkspaceDidSwitch(_ note: Notification) {
+        load()
+        notify()
     }
 
     // MARK: - Connection mutations
@@ -148,22 +162,20 @@ final class ConnectionStore {
         var connections: [SavedConnection]
     }
 
+    /// Connections live under the active workspace's directory so each
+    /// workspace keeps its own list. `WorkspaceStore.activeWorkspaceDirectory`
+    /// ensures the folder exists.
     private func storeURL() -> URL? {
-        let fm = FileManager.default
-        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.hampusaberg.Gastty"
-        let dir = appSupport.appendingPathComponent(bundleID, isDirectory: true)
-        do {
-            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-        } catch {
-            return nil
-        }
-        return dir.appendingPathComponent("connections.json")
+        WorkspaceStore.activeWorkspaceDirectory()?
+            .appendingPathComponent("connections.json")
     }
 
     private func load() {
+        // Reset to empty first so a workspace-switch into a brand-new
+        // (no file yet) workspace clears whatever the previous workspace
+        // had loaded.
+        folders = []
+        connections = []
         guard let url = storeURL(),
               let data = try? Data(contentsOf: url) else {
             return

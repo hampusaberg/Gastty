@@ -77,6 +77,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
 
         tabBar.translatesAutoresizingMaskIntoConstraints = false
         tabBar.delegate = self
+        // The workspace switcher inside the tab bar needs a window
+        // reference to anchor its New / Edit workspace sheets.
+        tabBar.workspaceSwitcher.ownerWindow = window
         root.addSubview(tabBar)
 
         // 1px separator between the (title bar + tab bar) strip and the

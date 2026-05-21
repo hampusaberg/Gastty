@@ -22,7 +22,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.applicationIconImage = Self.makeAppIcon()
         _ = SettingsStore.shared               // generates runtime.conf early
         _ = GhosttyRuntime.shared              // loads runtime.conf during init
-        _ = ConnectionStore.shared
+        _ = WorkspaceStore.shared              // bootstrap workspaces + migrate
+        _ = ConnectionStore.shared             // loads from active workspace
+
+        // Listen for workspace switches so we can save the current
+        // tabs/splits into the OLD workspace's state before AppKit
+        // closes them, then restore the new workspace's state.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(workspaceWillSwitch(_:)),
+            name: WorkspaceStore.willSwitch,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(workspaceDidSwitch(_:)),
+            name: WorkspaceStore.didSwitch,
+            object: nil
+        )
 
         // Request notification permission for "command finished" alerts.
         // Async — the user sees the system prompt once on first launch;
@@ -61,6 +78,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: SettingsStore.changedNotification,
             object: nil
         )
+    }
+
+    // MARK: - Workspace switching
+
+    /// Frames of the current windows captured at `willSwitch` and
+    /// re-applied to the new workspace's restored windows in
+    /// `didSwitch` so the user's chosen window layout (size + screen
+    /// position) is preserved across the switch. Without this, each
+    /// workspace's windows snap back to whatever frame was saved when
+    /// they were last quit, which feels jarring.
+    private var pendingSwitchFrames: [NSRect] = []
+
+    /// Fired BEFORE `WorkspaceStore.activeID` changes. Snapshot the
+    /// current windows into the OLD workspace's state.json — at this
+    /// point `WorkspaceStore.activeWorkspaceDirectory` still resolves
+    /// to the old workspace's folder, so `AppPersistence.save` writes
+    /// to the right place. Also captures frames for re-use in
+    /// `didSwitch`.
+    @objc private func workspaceWillSwitch(_ note: Notification) {
+        AppPersistence.save(snapshotState())
+        pendingSwitchFrames = controllers.compactMap { $0.window?.frame }
+    }
+
+    /// Fired AFTER the active workspace changed. Open the new
+    /// workspace's saved tabs FIRST, then close the old windows — that
+    /// way the in-between moment isn't "zero terminal windows," which
+    /// would trigger `applicationShouldTerminateAfterLastWindowClosed`
+    /// and quit the app mid-switch.
+    @objc private func workspaceDidSwitch(_ note: Notification) {
+        let oldControllers = controllers
+        let frames = pendingSwitchFrames
+        pendingSwitchFrames = []
+        controllers = []
+        if let saved = AppPersistence.load(), !saved.windows.isEmpty {
+            restoreWindows(from: saved)
+        } else {
+            openNewWindow(self)
+        }
+        // Re-position the restored windows over the OLD workspace's
+        // window frames, by index. Anything past the captured count
+        // (e.g. target has more windows than we started with) keeps
+        // its restored frame.
+        for (idx, frame) in frames.enumerated() where idx < controllers.count {
+            controllers[idx].window?.setFrame(frame, display: true)
+        }
+        // Old windows close through the normal path; the `remaining`
+        // check in `TerminalWindowController.windowWillClose` sees the
+        // freshly-opened new workspace windows and skips the terminate.
+        for old in oldControllers {
+            old.window?.close()
+        }
     }
 
     @objc private func settingsDidChange(_ note: Notification) {
