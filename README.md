@@ -118,11 +118,7 @@ Branch off `main`, run `xcodegen` after pulling, and submit a PR. The project la
 
 Open items — anything currently being worked on is in [Issues](https://github.com/hampusaberg/Gastty/issues). PRs welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
-### Feature gaps
-- **Word-highlight on selection** — double-click a word → all matches in the visible buffer light up (Xcode / VS Code style). Biggest still-missing item from the original Phase-1 plan.
-- **Divider position persistence** — drag a split divider, switch tabs, come back, current position is lost. Needs per-`SplitNode` ratio tracking restored on render plus a persistence schema bump.
-- **Notifications when a long-running command finishes** — "your `make` finished" while you're in another tab. The libghostty hook (`GHOSTTY_ACTION_COMMAND_FINISHED`) already fires; we just don't handle it yet.
-- **Theme picker search** — 18 curated themes is fine, but a search field would expose the full 512 bundled ones nicely.
+All four small-to-medium quality-of-life items from the original plan have shipped: pane minimums + depth-3 layout fix (v0.3.0), divider position persistence, command-finished notifications, and the searchable 512-theme picker. What's left are the bigger features.
 
 ### Bigger features
 - **Workspaces** — named bundle of tabs + connections persisted on disk; switch between "work", "homelab", "personal" with one shortcut.
