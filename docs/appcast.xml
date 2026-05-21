@@ -1,9 +1,18 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
   <channel>
     <title>Gastty Updates</title>
     <link>https://hampusaberg.github.io/Gastty/appcast.xml</link>
     <description>The auto-update feed for Gastty — a fast macOS terminal built on libghostty.</description>
     <language>en</language>
+    <item>
+      <title>Version 0.7.1</title>
+      <pubDate>Thu, 21 May 2026 13:18:00 +0000</pubDate>
+      <sparkle:version>11</sparkle:version>
+      <sparkle:shortVersionString>0.7.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink>https://hampusaberg.github.io/Gastty/releases/v0.7.1.html</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/hampusaberg/Gastty/releases/download/v0.7.1/Gastty-v0.7.1.dmg" length="8384874" type="application/octet-stream" sparkle:edSignature="lr8qGAYJFHxyMXQeTAMuYM7dOkxl5ek21hHPNRid5GchFv1Olyfi6w7SwbkLXLoORavb7qIw+DeODypYcHsmDw==" />
+    </item>
   </channel>
 </rss>
