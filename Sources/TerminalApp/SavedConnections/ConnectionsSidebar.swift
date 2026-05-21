@@ -37,6 +37,12 @@ final class ConnectionsSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         // so the sidebar matches the tab bar and benefits from the same
         // behind-window blur.
         layer?.backgroundColor = NSColor.clear.cgColor
+        // Clip children to the sidebar bounds so when ⌘S animates the
+        // width down to 0, the "Connections" header (anchored at
+        // leading + 12pt) gets clipped in step with the shrinking
+        // container instead of hanging over the terminal area until
+        // the animation completes and `isHidden` finally fires.
+        layer?.masksToBounds = true
         layoutContents()
         NotificationCenter.default.addObserver(self,
             selector: #selector(reload),
