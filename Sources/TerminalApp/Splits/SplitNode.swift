@@ -127,13 +127,40 @@ final class SplitNode {
 }
 
 /// NSSplitView subclass that forces a 50/50 split on its first non-zero
-/// layout pass. Without this, NSSplitView's default behavior gives the
-/// first added subview its existing frame width and the second only the
-/// leftover, which cascades through nested splits into the
-/// "wide-left, tiny-right" layout the user saw. After the initial balance
-/// the flag locks so user-dragged dividers aren't overridden.
-final class HalfSplitView: NSSplitView {
+/// layout pass and enforces a per-pane minimum so a stray drag can't
+/// shrink a terminal to a sliver.
+///
+/// Past attempts at min-size enforcement reached for
+/// `splitView(_:resizeSubviewsWithOldSize:)`, which means seizing layout
+/// control wholesale and breaks drag-to-resize. The two
+/// `constrain…CoordinateOfDividerAt` delegate methods are the right hook:
+/// they only clamp where the divider can land, leaving NSSplitView's own
+/// drag/animate machinery untouched.
+///
+/// Without this, NSSplitView's default layout also gives the first added
+/// subview its existing frame width and the second only the leftover,
+/// which cascades through nested splits into the "wide-left, tiny-right"
+/// shape we used to ship. After the initial balance the flag locks so
+/// user-dragged dividers aren't overridden.
+final class HalfSplitView: NSSplitView, NSSplitViewDelegate {
+
+    /// Minimum pane size in points. ~5–6 terminal cells at the default
+    /// font — small enough that the user can still squash a pane down
+    /// hard, large enough that an accidental drag doesn't make a pane
+    /// unusable or hide its surface entirely.
+    private let minPaneSize: CGFloat = 80
+
     private var hasBalanced = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // `NSSplitView.delegate` is a `weak var`, so self-delegating is
+        // safe (no retain cycle).
+        delegate = self
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
     override func layout() {
         super.layout()
         guard !hasBalanced, arrangedSubviews.count == 2 else { return }
@@ -145,5 +172,27 @@ final class HalfSplitView: NSSplitView {
         // crash the app on the first split.
         hasBalanced = true
         setPosition(total / 2, ofDividerAt: 0)
+    }
+
+    // MARK: - NSSplitViewDelegate
+
+    /// Lower bound for divider position (distance from the leading edge of
+    /// subview 0). Returning `minPaneSize` means the first pane can never
+    /// shrink below that.
+    func splitView(_ splitView: NSSplitView,
+                   constrainMinCoordinateOfDividerAt dividerIndex: Int) -> CGFloat {
+        minPaneSize
+    }
+
+    /// Upper bound for divider position. Returning
+    /// `total - dividerThickness - minPaneSize` keeps the second pane at
+    /// least `minPaneSize` wide. Falls back to a permissive value if the
+    /// window is too small to honour both minimums simultaneously, so
+    /// extremely narrow windows still render rather than locking up.
+    func splitView(_ splitView: NSSplitView,
+                   constrainMaxCoordinateOfDividerAt dividerIndex: Int) -> CGFloat {
+        let total = isVertical ? bounds.width : bounds.height
+        let limit = total - dividerThickness - minPaneSize
+        return max(minPaneSize, limit)
     }
 }
