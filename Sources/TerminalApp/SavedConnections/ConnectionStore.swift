@@ -1,209 +1,516 @@
 import AppKit
 import Foundation
 
-/// Process-wide store of saved connections + folders.
+/// Process-wide store of saved connections + per-workspace folders.
 ///
-/// Persists as JSON to `~/Library/Application Support/<bundle-id>/connections.json`.
-/// Posts `.connectionsDidChange` on every mutation so the Connections window,
-/// the sidebar, and the Quick Connect palette refresh their UI.
+/// Storage layout (v3):
+///   - `~/Library/Application Support/<bundle>/connections.json` — the
+///     single global list of `SavedConnection` records. Connection
+///     fields (name, host, jumphost, etc.) live here exactly once,
+///     even when a connection is reused across multiple workspaces.
+///   - `~/Library/Application Support/<bundle>/workspaces/<id>/connections.json`
+///     — per workspace: `{ folders, refs }`. Folders are workspace-local
+///     (a "Servers" folder in Work is distinct from one in Personal).
+///     `refs` is the ordered list of which connections appear in this
+///     workspace and, for each, which folder it sits in (or nil for
+///     root). A single connection can have refs in many workspaces.
 ///
-/// Order is significant: `folders` is in display order, and `connections`
-/// holds both root-level entries and the per-folder sequence (a connection's
-/// neighbours within the same folder are its siblings in array order).
+/// Migration: existing v2 layout stored `{ folders, connections }` per
+/// workspace with no global file. On first launch with v3 code,
+/// `migrateIfNeeded` collects all per-workspace connections into the new
+/// global file and rewrites each workspace's `connections.json` as
+/// `{ folders, refs }` derived from the old `folderID` on each
+/// connection. Pre-workspace users go through the workspace migration
+/// first (`WorkspaceStore` bootstrap), then this one.
+///
+/// Notifications: `.connectionsDidChange` fires on any mutation so the
+/// sidebar, Quick Connect, and Connections settings refresh.
 final class ConnectionStore {
     static let shared = ConnectionStore()
 
     static let changedNotification = Notification.Name("TerminalConnectionsDidChange")
 
-    private(set) var connections: [SavedConnection] = []
-    private(set) var folders: [ConnectionFolder] = []
+    // MARK: - Global state
 
-    private init() {
-        load()
-        // When the active workspace changes, reload our list from the
-        // new workspace's connections.json so the sidebar / Quick Connect
-        // / settings window all reflect the right workspace immediately.
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(activeWorkspaceDidSwitch(_:)),
-            name: WorkspaceStore.didSwitch,
-            object: nil
-        )
+    /// Every saved connection that exists anywhere, identified by
+    /// `SavedConnection.id`. Reused across workspaces (one record, many
+    /// references).
+    private(set) var allConnections: [SavedConnection] = []
+
+    // MARK: - Per-workspace state
+
+    /// Folders in each workspace, keyed by workspace ID. Each
+    /// workspace's value is the ordered folder list for that
+    /// workspace.
+    private var foldersByWorkspace: [UUID: [ConnectionFolder]] = [:]
+
+    /// Connection refs in each workspace, keyed by workspace ID. The
+    /// order of refs within a workspace defines display order in that
+    /// workspace.
+    private var refsByWorkspace: [UUID: [WorkspaceConnectionRef]] = [:]
+
+    // MARK: - Convenience accessors for the active workspace
+
+    /// Active workspace's folders, in display order.
+    var folders: [ConnectionFolder] {
+        foldersByWorkspace[WorkspaceStore.shared.activeID] ?? []
     }
 
-    @objc private func activeWorkspaceDidSwitch(_ note: Notification) {
-        load()
-        notify()
-    }
-
-    // MARK: - Connection mutations
-
-    func add(_ connection: SavedConnection) {
-        connections.append(connection)
-        save()
-        notify()
-    }
-
-    func update(_ connection: SavedConnection) {
-        if let idx = connections.firstIndex(where: { $0.id == connection.id }) {
-            connections[idx] = connection
-            save()
-            notify()
+    /// Connections in the active workspace, in display order. Used by
+    /// the sidebar and Quick Connect. (Settings can now also surface
+    /// `allConnections` for cross-workspace management.)
+    var connections: [SavedConnection] {
+        let refs = refsByWorkspace[WorkspaceStore.shared.activeID] ?? []
+        return refs.compactMap { ref in
+            allConnections.first(where: { $0.id == ref.connectionID })
         }
     }
 
-    func remove(_ connection: SavedConnection) {
-        connections.removeAll { $0.id == connection.id }
-        save()
-        notify()
-    }
-
-    /// Move a connection into `folder` (or to the root when nil) and place it
-    /// at `index` within that group's siblings. `index` is clamped.
-    func moveConnection(_ connectionID: UUID, toFolder folder: UUID?, at index: Int) {
-        guard let currentIdx = connections.firstIndex(where: { $0.id == connectionID }) else { return }
-        var moved = connections.remove(at: currentIdx)
-        moved.folderID = folder
-
-        // Translate the per-group index back into an absolute index in the
-        // flat `connections` array. We walk through siblings in the target
-        // group and stop when we've passed `index` of them.
-        let absolute = absoluteInsertionIndex(forFolder: folder, groupIndex: index)
-        connections.insert(moved, at: absolute)
-        save()
-        notify()
-    }
-
-    // MARK: - Folder mutations
-
-    @discardableResult
-    func addFolder(name: String) -> ConnectionFolder {
-        let folder = ConnectionFolder(name: name)
-        folders.append(folder)
-        save()
-        notify()
-        return folder
-    }
-
-    func renameFolder(_ folderID: UUID, to name: String) {
-        guard let idx = folders.firstIndex(where: { $0.id == folderID }) else { return }
-        folders[idx].name = name
-        save()
-        notify()
-    }
-
-    /// Remove a folder. Connections inside the folder are moved back to the
-    /// root rather than deleted.
-    func removeFolder(_ folderID: UUID) {
-        folders.removeAll { $0.id == folderID }
-        for i in connections.indices where connections[i].folderID == folderID {
-            connections[i].folderID = nil
-        }
-        save()
-        notify()
-    }
-
-    func moveFolder(_ folderID: UUID, to index: Int) {
-        guard let currentIdx = folders.firstIndex(where: { $0.id == folderID }) else { return }
-        let folder = folders.remove(at: currentIdx)
-        let clamped = max(0, min(folders.count, index))
-        folders.insert(folder, at: clamped)
-        save()
-        notify()
-    }
-
-    // MARK: - Queries
-
-    /// Connections at the root (not in any folder), in display order.
+    /// Active-workspace connections that aren't placed in any folder.
     var rootConnections: [SavedConnection] {
-        connections.filter { $0.folderID == nil }
+        let refs = refsByWorkspace[WorkspaceStore.shared.activeID] ?? []
+        return refs
+            .filter { $0.folderID == nil }
+            .compactMap { ref in allConnections.first(where: { $0.id == ref.connectionID }) }
     }
 
+    /// Active-workspace connections placed in the given folder.
     func connections(in folderID: UUID) -> [SavedConnection] {
-        connections.filter { $0.folderID == folderID }
+        let refs = refsByWorkspace[WorkspaceStore.shared.activeID] ?? []
+        return refs
+            .filter { $0.folderID == folderID }
+            .compactMap { ref in allConnections.first(where: { $0.id == ref.connectionID }) }
     }
 
     func folder(with id: UUID) -> ConnectionFolder? {
         folders.first(where: { $0.id == id })
     }
 
+    /// Substring filter across name / host / user, scoped to the active
+    /// workspace. Used by Quick Connect.
     func filtered(by query: String) -> [SavedConnection] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if q.isEmpty { return connections }
-        return connections.filter { c in
+        let base = connections
+        if q.isEmpty { return base }
+        return base.filter { c in
             c.name.lowercased().contains(q) ||
             c.host.lowercased().contains(q) ||
             c.user.lowercased().contains(q)
         }
     }
 
-    // MARK: - Internal helpers
+    // MARK: - Cross-workspace queries (for Settings UI)
 
-    /// Given a target folder and the desired index *within that folder's
-    /// siblings*, return the absolute index in `connections` to insert at.
-    private func absoluteInsertionIndex(forFolder folder: UUID?, groupIndex: Int) -> Int {
-        var seen = 0
-        for (idx, conn) in connections.enumerated() {
-            if conn.folderID == folder {
-                if seen == groupIndex { return idx }
-                seen += 1
-            }
+    /// The set of workspace IDs this connection appears in. Computed by
+    /// scanning the per-workspace refs — there's no denormalised list on
+    /// the connection itself so this can never drift out of sync.
+    func workspaces(for connectionID: UUID) -> Set<UUID> {
+        var out: Set<UUID> = []
+        for (wsID, refs) in refsByWorkspace where refs.contains(where: { $0.connectionID == connectionID }) {
+            out.insert(wsID)
         }
-        return connections.count
+        return out
     }
 
-    // MARK: - Persistence
+    // MARK: - Mutations
 
-    /// v2 file shape — wraps both folders and connections. v1 was a bare
-    /// `[SavedConnection]` array; we decode either transparently.
-    private struct PersistedV2: Codable {
+    /// Add a brand-new connection. By default it goes into the active
+    /// workspace at the root; pass `toWorkspaces` to opt the new
+    /// connection into additional workspaces at the same time.
+    func add(_ connection: SavedConnection,
+             toWorkspaces: Set<UUID>? = nil) {
+        var record = connection
+        record.folderID = nil  // legacy field — placement lives in refs
+        allConnections.append(record)
+
+        let targets = toWorkspaces ?? [WorkspaceStore.shared.activeID]
+        for wsID in targets {
+            var refs = refsByWorkspace[wsID] ?? []
+            refs.append(WorkspaceConnectionRef(connectionID: record.id, folderID: nil))
+            refsByWorkspace[wsID] = refs
+            saveWorkspace(wsID)
+        }
+        saveGlobal()
+        notify()
+    }
+
+    /// Update the editable fields on a connection. Workspace membership
+    /// is NOT changed here — use `setWorkspaces(_:for:)` for that.
+    func update(_ connection: SavedConnection) {
+        guard let idx = allConnections.firstIndex(where: { $0.id == connection.id }) else { return }
+        var record = connection
+        record.folderID = nil
+        allConnections[idx] = record
+        saveGlobal()
+        notify()
+    }
+
+    /// Remove a connection from the active workspace. If after the
+    /// removal it isn't a member of any workspace, also delete the
+    /// global record. (Use `removeFromAllWorkspaces` to skip the
+    /// per-workspace nuance and delete everywhere unconditionally.)
+    func remove(_ connection: SavedConnection) {
+        let activeID = WorkspaceStore.shared.activeID
+        var refs = refsByWorkspace[activeID] ?? []
+        refs.removeAll { $0.connectionID == connection.id }
+        refsByWorkspace[activeID] = refs
+        saveWorkspace(activeID)
+
+        if workspaces(for: connection.id).isEmpty {
+            allConnections.removeAll { $0.id == connection.id }
+            saveGlobal()
+        }
+        notify()
+    }
+
+    /// Remove the connection from every workspace it belongs to AND
+    /// from the global list. Used by the Connections settings when the
+    /// user explicitly deletes a connection.
+    func removeFromAllWorkspaces(_ connection: SavedConnection) {
+        for wsID in refsByWorkspace.keys {
+            if var refs = refsByWorkspace[wsID], refs.contains(where: { $0.connectionID == connection.id }) {
+                refs.removeAll { $0.connectionID == connection.id }
+                refsByWorkspace[wsID] = refs
+                saveWorkspace(wsID)
+            }
+        }
+        allConnections.removeAll { $0.id == connection.id }
+        saveGlobal()
+        notify()
+    }
+
+    /// Move a connection within the active workspace to `folder` (or
+    /// to the root when nil), placed at `index` within that group.
+    func moveConnection(_ connectionID: UUID,
+                        toFolder folder: UUID?,
+                        at index: Int) {
+        let wsID = WorkspaceStore.shared.activeID
+        var refs = refsByWorkspace[wsID] ?? []
+        guard let currentIdx = refs.firstIndex(where: { $0.connectionID == connectionID }) else { return }
+        var moved = refs.remove(at: currentIdx)
+        moved.folderID = folder
+
+        // Translate the per-group index into an absolute index in the
+        // flat refs array. Walk through siblings in the target group
+        // and stop after `index` of them.
+        var seen = 0
+        var insertion = refs.count
+        for (i, r) in refs.enumerated() where r.folderID == folder {
+            if seen == index { insertion = i; break }
+            seen += 1
+        }
+        refs.insert(moved, at: insertion)
+        refsByWorkspace[wsID] = refs
+        saveWorkspace(wsID)
+        notify()
+    }
+
+    /// Add or remove workspace memberships for a connection so its set
+    /// of workspaces exactly matches `targetIDs`. Adds go in at the
+    /// root of each new workspace; removes drop the ref from each
+    /// removed workspace.
+    func setWorkspaces(_ targetIDs: Set<UUID>, for connectionID: UUID) {
+        let current = workspaces(for: connectionID)
+        let toAdd = targetIDs.subtracting(current)
+        let toRemove = current.subtracting(targetIDs)
+
+        for wsID in toAdd {
+            var refs = refsByWorkspace[wsID] ?? []
+            refs.append(WorkspaceConnectionRef(connectionID: connectionID, folderID: nil))
+            refsByWorkspace[wsID] = refs
+            saveWorkspace(wsID)
+        }
+        for wsID in toRemove {
+            var refs = refsByWorkspace[wsID] ?? []
+            refs.removeAll { $0.connectionID == connectionID }
+            refsByWorkspace[wsID] = refs
+            saveWorkspace(wsID)
+        }
+        notify()
+    }
+
+    // MARK: - Folder mutations (active workspace)
+
+    @discardableResult
+    func addFolder(name: String) -> ConnectionFolder {
+        let folder = ConnectionFolder(name: name)
+        let wsID = WorkspaceStore.shared.activeID
+        var folders = foldersByWorkspace[wsID] ?? []
+        folders.append(folder)
+        foldersByWorkspace[wsID] = folders
+        saveWorkspace(wsID)
+        notify()
+        return folder
+    }
+
+    func renameFolder(_ folderID: UUID, to name: String) {
+        let wsID = WorkspaceStore.shared.activeID
+        guard var folders = foldersByWorkspace[wsID],
+              let idx = folders.firstIndex(where: { $0.id == folderID }) else { return }
+        folders[idx].name = name
+        foldersByWorkspace[wsID] = folders
+        saveWorkspace(wsID)
+        notify()
+    }
+
+    func removeFolder(_ folderID: UUID) {
+        let wsID = WorkspaceStore.shared.activeID
+        if var folders = foldersByWorkspace[wsID] {
+            folders.removeAll { $0.id == folderID }
+            foldersByWorkspace[wsID] = folders
+        }
+        if var refs = refsByWorkspace[wsID] {
+            for i in refs.indices where refs[i].folderID == folderID {
+                refs[i].folderID = nil
+            }
+            refsByWorkspace[wsID] = refs
+        }
+        saveWorkspace(wsID)
+        notify()
+    }
+
+    func moveFolder(_ folderID: UUID, to index: Int) {
+        let wsID = WorkspaceStore.shared.activeID
+        guard var folders = foldersByWorkspace[wsID],
+              let currentIdx = folders.firstIndex(where: { $0.id == folderID }) else { return }
+        let folder = folders.remove(at: currentIdx)
+        let clamped = max(0, min(folders.count, index))
+        folders.insert(folder, at: clamped)
+        foldersByWorkspace[wsID] = folders
+        saveWorkspace(wsID)
+        notify()
+    }
+
+    // MARK: - Init
+
+    private init() {
+        loadAll()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(activeWorkspaceDidSwitch(_:)),
+            name: WorkspaceStore.didSwitch,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(workspacesDidChange(_:)),
+            name: WorkspaceStore.didChange,
+            object: nil
+        )
+    }
+
+    @objc private func activeWorkspaceDidSwitch(_ note: Notification) {
+        // The active workspace's data is already in memory — switching
+        // just changes which slice the `connections` / `folders`
+        // getters return. Fire the change notification so views
+        // refresh.
+        notify()
+    }
+
+    @objc private func workspacesDidChange(_ note: Notification) {
+        // A workspace was added or removed. If added, prepare empty
+        // refs/folders so saves don't no-op. If removed, drop its
+        // data (the workspace's folder on disk was already cleaned up
+        // by `WorkspaceStore`).
+        let known = Set(WorkspaceStore.shared.workspaces.map { $0.id })
+        for wsID in known where refsByWorkspace[wsID] == nil {
+            refsByWorkspace[wsID] = []
+            foldersByWorkspace[wsID] = []
+        }
+        for wsID in refsByWorkspace.keys where !known.contains(wsID) {
+            refsByWorkspace[wsID] = nil
+            foldersByWorkspace[wsID] = nil
+        }
+        notify()
+    }
+
+    // MARK: - Load / save
+
+    /// On startup, run the v2 → v3 migration if any workspace still has
+    /// an old-format file, then load both the global connections list
+    /// and every workspace's refs/folders into memory.
+    private func loadAll() {
+        migrateIfNeeded()
+        loadGlobal()
+        for ws in WorkspaceStore.shared.workspaces {
+            loadWorkspace(ws.id)
+        }
+    }
+
+    private func loadGlobal() {
+        guard let url = globalURL(),
+              let data = try? Data(contentsOf: url),
+              let payload = try? JSONDecoder().decode(GlobalConnectionsFile.self, from: data) else {
+            return
+        }
+        allConnections = payload.connections
+    }
+
+    private func loadWorkspace(_ id: UUID) {
+        guard let url = workspaceURL(id),
+              let data = try? Data(contentsOf: url) else {
+            foldersByWorkspace[id] = []
+            refsByWorkspace[id] = []
+            return
+        }
+        if let v3 = try? JSONDecoder().decode(WorkspaceConnectionsFileV3.self, from: data) {
+            foldersByWorkspace[id] = v3.folders
+            refsByWorkspace[id] = v3.refs
+            return
+        }
+        // Fallback: file is still in v2 format (migration didn't fully
+        // complete for this workspace — e.g. we crashed between
+        // writing global and per-workspace files). Decode as v2 in
+        // place, harvest any missing connection records into the
+        // global list, and rewrite as v3.
+        if let v2 = try? JSONDecoder().decode(WorkspaceConnectionsFileV2.self, from: data) {
+            foldersByWorkspace[id] = v2.folders
+            var refs: [WorkspaceConnectionRef] = []
+            for var conn in v2.connections {
+                let folder = conn.folderID
+                conn.folderID = nil
+                if !allConnections.contains(where: { $0.id == conn.id }) {
+                    allConnections.append(conn)
+                }
+                refs.append(WorkspaceConnectionRef(connectionID: conn.id, folderID: folder))
+            }
+            refsByWorkspace[id] = refs
+            saveWorkspace(id)
+            saveGlobal()
+            return
+        }
+        foldersByWorkspace[id] = []
+        refsByWorkspace[id] = []
+    }
+
+    private func saveGlobal() {
+        guard let url = globalURL() else { return }
+        let payload = GlobalConnectionsFile(version: 1, connections: allConnections)
+        write(payload, to: url)
+    }
+
+    private func saveWorkspace(_ id: UUID) {
+        guard let url = workspaceURL(id) else { return }
+        let payload = WorkspaceConnectionsFileV3(
+            version: 3,
+            folders: foldersByWorkspace[id] ?? [],
+            refs: refsByWorkspace[id] ?? []
+        )
+        write(payload, to: url)
+    }
+
+    private func notify() {
+        NotificationCenter.default.post(name: Self.changedNotification, object: self)
+    }
+
+    // MARK: - File shapes
+
+    private struct GlobalConnectionsFile: Codable {
+        var version: Int
+        var connections: [SavedConnection]
+    }
+
+    private struct WorkspaceConnectionsFileV3: Codable {
+        var version: Int
+        var folders: [ConnectionFolder]
+        var refs: [WorkspaceConnectionRef]
+    }
+
+    /// v2 shape — pre-cross-workspace. Read once during migration.
+    private struct WorkspaceConnectionsFileV2: Codable {
         var version: Int
         var folders: [ConnectionFolder]
         var connections: [SavedConnection]
     }
 
-    /// Connections live under the active workspace's directory so each
-    /// workspace keeps its own list. `WorkspaceStore.activeWorkspaceDirectory`
-    /// ensures the folder exists.
-    private func storeURL() -> URL? {
-        WorkspaceStore.activeWorkspaceDirectory()?
-            .appendingPathComponent("connections.json")
+    // MARK: - Paths
+
+    private static func supportDir() -> URL? {
+        let fm = FileManager.default
+        guard let base = fm.urls(for: .applicationSupportDirectory,
+                                 in: .userDomainMask).first else { return nil }
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.hampusaberg.Gastty"
+        let dir = base.appendingPathComponent(bundleID, isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
     }
 
-    private func load() {
-        // Reset to empty first so a workspace-switch into a brand-new
-        // (no file yet) workspace clears whatever the previous workspace
-        // had loaded.
-        folders = []
-        connections = []
-        guard let url = storeURL(),
-              let data = try? Data(contentsOf: url) else {
-            return
-        }
-        let decoder = JSONDecoder()
-        if let v2 = try? decoder.decode(PersistedV2.self, from: data) {
-            folders = v2.folders
-            connections = v2.connections
-            return
-        }
-        // Fall back to v1 (raw array of connections, no folders yet).
-        if let v1 = try? decoder.decode([SavedConnection].self, from: data) {
-            connections = v1
-            folders = []
-        }
+    private func globalURL() -> URL? {
+        Self.supportDir()?.appendingPathComponent("connections.json")
     }
 
-    private func save() {
-        guard let url = storeURL() else { return }
+    private func workspaceURL(_ id: UUID) -> URL? {
+        guard let base = Self.supportDir() else { return nil }
+        let dir = base
+            .appendingPathComponent("workspaces", isDirectory: true)
+            .appendingPathComponent(id.uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("connections.json")
+    }
+
+    private func write<T: Codable>(_ value: T, to url: URL) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let payload = PersistedV2(version: 2, folders: folders, connections: connections)
-        if let data = try? encoder.encode(payload) {
+        if let data = try? encoder.encode(value) {
             try? data.write(to: url, options: .atomic)
         }
     }
 
-    private func notify() {
-        NotificationCenter.default.post(name: Self.changedNotification, object: self)
+    // MARK: - Migration
+
+    /// One-shot v2 → v3 migration. Detected by the absence of the
+    /// global connections.json: in v2 there was no global file, in v3
+    /// it always exists (even if it only contains an empty array). If
+    /// the global file exists we're already on v3 and skip.
+    private func migrateIfNeeded() {
+        guard let global = globalURL() else { return }
+        if FileManager.default.fileExists(atPath: global.path) { return }
+
+        let fm = FileManager.default
+        var migratedConnections: [SavedConnection] = []
+        var migratedRefs: [UUID: [WorkspaceConnectionRef]] = [:]
+        var migratedFolders: [UUID: [ConnectionFolder]] = [:]
+
+        for ws in WorkspaceStore.shared.workspaces {
+            guard let url = workspaceURL(ws.id),
+                  fm.fileExists(atPath: url.path),
+                  let data = try? Data(contentsOf: url) else { continue }
+            // v2 files have `connections: [SavedConnection]`. v3 files
+            // have `refs: [WorkspaceConnectionRef]`. If the v2 decode
+            // fails (already v3 or empty), skip.
+            guard let v2 = try? JSONDecoder().decode(WorkspaceConnectionsFileV2.self, from: data),
+                  v2.version <= 2 else { continue }
+
+            var workspaceRefs: [WorkspaceConnectionRef] = []
+            for var conn in v2.connections {
+                let folder = conn.folderID
+                conn.folderID = nil
+                migratedConnections.append(conn)
+                workspaceRefs.append(WorkspaceConnectionRef(connectionID: conn.id,
+                                                             folderID: folder))
+            }
+            migratedFolders[ws.id] = v2.folders
+            migratedRefs[ws.id] = workspaceRefs
+        }
+
+        // Write global FIRST. The presence of the global file is what
+        // gates re-running migration; if we crash between writes, the
+        // global already-exists guard kicks in next launch and
+        // `loadWorkspace` falls back to v2 for any per-workspace file
+        // still in the old format (see fallback in `loadWorkspace`).
+        let payload = GlobalConnectionsFile(version: 1, connections: migratedConnections)
+        write(payload, to: global)
+
+        // Now overwrite each workspace's file in v3 format.
+        for ws in WorkspaceStore.shared.workspaces {
+            if let url = workspaceURL(ws.id) {
+                let v3 = WorkspaceConnectionsFileV3(
+                    version: 3,
+                    folders: migratedFolders[ws.id] ?? [],
+                    refs: migratedRefs[ws.id] ?? []
+                )
+                write(v3, to: url)
+            }
+        }
     }
 }

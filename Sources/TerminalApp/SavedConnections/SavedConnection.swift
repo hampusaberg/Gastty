@@ -9,7 +9,11 @@ struct SavedConnection: Identifiable, Codable, Hashable {
     var port: Int = 22
     /// Path to an SSH private key, e.g. `~/.ssh/id_ed25519`. Optional.
     var identityFile: String?
-    /// Folder this connection belongs to, or `nil` if it lives at the root.
+    /// Legacy field, still decoded from old per-workspace v2 files so
+    /// migration can read it. New code stores folder placement in
+    /// per-workspace `WorkspaceConnectionRef.folderID` instead — the
+    /// same connection can live in different folders in different
+    /// workspaces. Always `nil` on freshly written records.
     var folderID: UUID?
 
     /// Optional SSH ProxyJump (`-J`) configuration — when set, ssh hops
@@ -66,4 +70,14 @@ struct SavedConnection: Identifiable, Codable, Hashable {
 struct ConnectionFolder: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
     var name: String
+}
+
+/// Per-workspace placement record for one connection. A connection that
+/// appears in multiple workspaces has one `WorkspaceConnectionRef` per
+/// workspace, each with its own `folderID` so folder organisation can
+/// differ across workspaces. The order of refs within a workspace's
+/// `connections.json` defines display order for that workspace.
+struct WorkspaceConnectionRef: Codable, Hashable {
+    var connectionID: UUID
+    var folderID: UUID?
 }
