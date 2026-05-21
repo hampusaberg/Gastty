@@ -22,3 +22,17 @@ updates:
     labels:
       - dependencies
       - libghostty
+
+  # Swift Packages — currently just Sparkle (the auto-updater). Within
+  # the 2.x major version anything Dependabot proposes (patch + minor)
+  # is safe to merge straight away. A 3.x bump would arrive as a
+  # major-version PR; treat that as a real review rather than a
+  # routine merge.
+  - package-ecosystem: swift
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - swift-package
