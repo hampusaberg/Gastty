@@ -12,6 +12,10 @@ struct AppSettings: Codable, Equatable {
     var theme: String = "TokyoNight Storm"  // default; user can change in Settings or set to "" for none
     var backgroundOpacity: Double = 1.0     // 0.2 … 1.0
     var blurLevel: BlurLevel = .off
+    /// First-run flag. `false` means the onboarding window will run on
+    /// launch; the onboarding flips it to `true` when the user finishes
+    /// (or skips). Stored in settings.json so it survives app updates.
+    var hasCompletedOnboarding: Bool = false
 
     enum CursorStyle: String, Codable, CaseIterable {
         case bar, block, underline
@@ -33,6 +37,7 @@ struct AppSettings: Codable, Equatable {
         theme = try container.decodeIfPresent(String.self, forKey: .theme) ?? "TokyoNight Storm"
         backgroundOpacity = try container.decodeIfPresent(Double.self, forKey: .backgroundOpacity) ?? 1.0
         blurLevel = try container.decodeIfPresent(BlurLevel.self, forKey: .blurLevel) ?? .off
+        hasCompletedOnboarding = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding) ?? false
     }
 
     /// Render as a Ghostty config-file fragment.

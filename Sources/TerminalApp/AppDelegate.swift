@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var connectionsWindow: ConnectionsWindowController?
     private var quickConnectPanel: QuickConnectPanel?
     private var settingsWindow: SettingsWindowController?
+    private var onboardingWindow: OnboardingWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -22,14 +23,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = GhosttyRuntime.shared              // loads runtime.conf during init
         _ = ConnectionStore.shared
 
-        // Restore previous tabs/splits if we have any. Otherwise open a
-        // fresh window so the app launches with one ready terminal.
-        if let saved = AppPersistence.load(), !saved.windows.isEmpty {
+        // First-run onboarding takes precedence over both restore and
+        // new-window — once the user finishes (or dismisses), the
+        // continuation opens the first terminal window for them.
+        if !SettingsStore.shared.settings.hasCompletedOnboarding {
+            showOnboarding { [weak self] in
+                guard let self else { return }
+                if let saved = AppPersistence.load(), !saved.windows.isEmpty {
+                    self.restoreWindows(from: saved)
+                } else {
+                    self.openNewWindow(self)
+                }
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        } else if let saved = AppPersistence.load(), !saved.windows.isEmpty {
             restoreWindows(from: saved)
+            NSApp.activate(ignoringOtherApps: true)
         } else {
             openNewWindow(self)
+            NSApp.activate(ignoringOtherApps: true)
         }
-        NSApp.activate(ignoringOtherApps: true)
 
         // Any change in Settings → regenerate config and broadcast to every
         // live surface + update each window's chrome (opacity / blur).
@@ -46,6 +59,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for controller in controllers {
             controller.applySettings(SettingsStore.shared.settings)
         }
+    }
+
+    /// First-run onboarding. The `completion` callback runs after the
+    /// window closes (whether the user finished or dismissed), at which
+    /// point the caller opens the actual terminal window. We hold a
+    /// strong reference to the controller until then via
+    /// `self.onboardingWindow` so it isn't deallocated mid-flow.
+    private func showOnboarding(completion: @escaping () -> Void) {
+        let controller = OnboardingWindowController { [weak self] in
+            self?.onboardingWindow = nil
+            completion()
+        }
+        onboardingWindow = controller
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc func showSettings(_ sender: Any?) {
