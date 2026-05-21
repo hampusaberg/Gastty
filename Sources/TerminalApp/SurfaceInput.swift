@@ -24,9 +24,17 @@ extension SurfaceHostView {
     ///
     /// Pass the produced text via the `text` field of the key event struct,
     /// NOT via a separate `ghostty_surface_text` call — doing both inserts
-    /// every character twice. Control characters (codepoint < 0x20) are
-    /// encoded by libghostty itself, so leave `text = nil` for those —
-    /// otherwise ctrl+Enter etc. produce the wrong byte sequence.
+    /// every character twice. Two ranges go without text so libghostty's
+    /// KeyEncoder synthesizes the right bytes from keycode + mods:
+    ///
+    ///   - Control characters (codepoint < 0x20). Otherwise ctrl+Enter etc.
+    ///     produce the wrong byte sequence.
+    ///   - macOS Private Use Area function keys (0xF700–0xF8FF: arrows,
+    ///     F1–F35, Home, End, PageUp/Down, …). These are sentinel codepoints
+    ///     AppKit puts in `event.characters`; sending them as text makes
+    ///     libghostty emit the literal UTF-8 of the PUA codepoint, which is
+    ///     why arrow keys inside Claude Code / vim / less were inserting
+    ///     stray characters instead of moving the cursor.
     private func forwardKey(event: NSEvent, action: ghostty_input_action_e) {
         guard let surface else { return }
         var key = ghostty_input_key_s()
@@ -40,7 +48,8 @@ extension SurfaceHostView {
         if let chars = event.characters,
            !chars.isEmpty,
            let first = chars.unicodeScalars.first,
-           first.value >= 0x20 {
+           first.value >= 0x20,
+           !(first.value >= 0xF700 && first.value <= 0xF8FF) {
             chars.withCString { ptr in
                 key.text = ptr
                 _ = ghostty_surface_key(surface, key)
