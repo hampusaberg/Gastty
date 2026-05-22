@@ -214,9 +214,16 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
 
     func closeActiveSession() {
         guard let active = tabBar.activeSession else { return }
-        tabBar.remove(session: active)
-        if tabBar.isEmpty {
-            window?.performClose(nil)
+        confirmCloseIfRunning(
+            scope: active.rootNode.allLeaves(),
+            messageText: "Close Tab?",
+            informativeText: "The terminal still has a running process. If you close the tab the process will be killed."
+        ) { [weak self] in
+            guard let self else { return }
+            self.tabBar.remove(session: active)
+            if self.tabBar.isEmpty {
+                self.window?.performClose(nil)
+            }
         }
     }
 
@@ -226,9 +233,52 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
     func closeActivePaneOrTab() {
         guard let active = tabBar.activeSession else { return }
         if active.rootNode.allLeaves().count > 1 {
-            handleSurfaceClose(active.activeSurface)
+            let surface = active.activeSurface
+            confirmCloseIfRunning(
+                scope: [surface],
+                messageText: "Close Pane?",
+                informativeText: "This pane still has a running process. If you close it the process will be killed."
+            ) { [weak self] in
+                self?.handleSurfaceClose(surface)
+            }
         } else {
             closeActiveSession()
+        }
+    }
+
+    /// Show the "running process" sheet over the active window if any
+    /// surface in `scope` reports a live child PID, and only call
+    /// `proceed` on confirm. When nothing's running we skip straight
+    /// to `proceed`, so close-when-idle still feels instant.
+    ///
+    /// libghostty's `ghostty_surface_needs_confirm_quit` returns true
+    /// when the surface has a child process that isn't the user's
+    /// login shell — i.e. SSH, vim, claude, anything they'd hate to
+    /// lose to a stray ⌘W.
+    private func confirmCloseIfRunning(
+        scope: [SurfaceHostView],
+        messageText: String,
+        informativeText: String,
+        proceed: @escaping () -> Void
+    ) {
+        let hasRunning = scope.contains { host in
+            guard let surface = host.surface else { return false }
+            return ghostty_surface_needs_confirm_quit(surface)
+        }
+        guard hasRunning, let window else {
+            proceed()
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = messageText
+        alert.informativeText = informativeText
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertFirstButtonReturn {
+                proceed()
+            }
         }
     }
 
@@ -268,9 +318,16 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
     }
 
     func tabBar(_ bar: TabBarView, didRequestCloseOf session: Session) {
-        bar.remove(session: session)
-        if bar.isEmpty {
-            window?.performClose(nil)
+        confirmCloseIfRunning(
+            scope: session.rootNode.allLeaves(),
+            messageText: "Close Tab?",
+            informativeText: "The terminal still has a running process. If you close the tab the process will be killed."
+        ) { [weak self] in
+            guard let self else { return }
+            bar.remove(session: session)
+            if bar.isEmpty {
+                self.window?.performClose(nil)
+            }
         }
     }
 
