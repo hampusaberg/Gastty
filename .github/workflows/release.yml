@@ -245,6 +245,17 @@ jobs:
           VERSION_TAG: ${{ steps.tag.outputs.name }}
           SIG_ATTRS: ${{ steps.sparkle_sign.outputs.sig_attrs }}
         run: |
+          # Always insert on top of CURRENT main's appcast, not the
+          # appcast as it stood at the tag. Without this, a tag that
+          # was pushed before a rebase (so it points at an older
+          # commit than what's currently on main) will write its
+          # entry on top of a stale appcast and clobber any entries
+          # main has gained since — the next `git pull --rebase`
+          # below then dies on a CONFLICT in docs/appcast.xml.
+          # Re-syncing the file from origin/main is cheap and idempotent.
+          git fetch origin main
+          git checkout origin/main -- docs/appcast.xml
+
           # Strip leading `v` from the tag for the marketing version
           # (Sparkle's shortVersionString expects 0.7.0, not v0.7.0).
           SHORT_VERSION="${VERSION_TAG#v}"
