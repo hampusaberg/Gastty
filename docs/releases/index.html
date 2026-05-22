@@ -83,6 +83,18 @@
 </head>
 <body>
   <div class="page-header">Gastty — All Releases</div>
+  <section class="release" id="0-7-3">
+    <div class="release-tag">v0.7.3<span class="pub-date">Fri, 22 May 2026</span></div>
+    <h1 class="release-title">v0.7.3</h1>
+    <h2>Fixes</h2>
+<ul>
+<li><strong>Ctrl+C / Ctrl+D / Ctrl+W now work inside TUIs like Claude Code, lazygit, and helix.</strong> They already worked at the bash/zsh prompt; the bug only hit applications that negotiate the modern <em>kitty keyboard protocol</em> with the terminal. We were stripping the letter from the key event before libghostty could encode the proper <code class="notranslate">CSI u</code> sequence — now we follow upstream Ghostty's input convention exactly.</li>
+</ul>
+<h2>What's new</h2>
+<ul>
+<li><strong>Confirm before closing a tab or pane with something running.</strong> ⌘W (or the tab's X button) now pops a "Close Tab?" sheet when the tab has an SSH session, vim, claude, or any other running process — so a stray keystroke doesn't kill your work. Idle shells still close instantly, so nothing changes for the common case. Splits get the same treatment with a "Close Pane?" sheet scoped to just the focused pane.</li>
+</ul>
+  </section>
   <section class="release" id="0-7-2">
     <div class="release-tag">v0.7.2<span class="pub-date">Thu, 21 May 2026</span></div>
     <h1 class="release-title">v0.7.2</h1>
