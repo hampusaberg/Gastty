@@ -83,6 +83,24 @@
 </head>
 <body>
   <div class="page-header">Gastty — All Releases</div>
+  <section class="release" id="0-7-2">
+    <div class="release-tag">v0.7.2<span class="pub-date">Thu, 21 May 2026</span></div>
+    <h1 class="release-title">v0.7.2</h1>
+    <h2>What's new</h2>
+<ul>
+<li><strong>Combined release notes when you've skipped versions.</strong> If you're a few versions behind, Sparkle's update dialog now shows notes for <em>every</em> release between you and the latest, not just the newest one. New page at <code class="notranslate">/releases/index.html</code> regenerates on every release publish/edit.</li>
+<li><strong>Stale-DMG nudge on first run.</strong> If someone passes around an older Gastty DMG (e.g. in Slack), the first launch now checks the appcast before onboarding starts and offers a one-click update to the current release. "Continue with this version" bypasses if you really want to.</li>
+</ul>
+<h2>Polish</h2>
+<ul>
+<li><strong>Sidebar close animation no longer leaves "Connections" text floating.</strong> The sidebar's header label was anchored absolutely and kept drawing as the container shrank to 0; it now clips in step with the width animation, so ⌘S feels uniform.</li>
+</ul>
+<h2>Under the hood</h2>
+<ul>
+<li>Sparkle is gated off in Debug builds (Sparkle 2.x refuses to start without Developer ID signing — the resulting "updater failed to start" alert was pure noise during local development). Release builds are unchanged.</li>
+<li><code class="notranslate">workflow_dispatch</code> added to the release-notes workflow so the combined changelog page can be backfilled or recovered without re-editing a release.</li>
+</ul>
+  </section>
   <section class="release" id="0-7-1">
     <div class="release-tag">v0.7.1<span class="pub-date">Thu, 21 May 2026</span></div>
     <h1 class="release-title">v0.7.1</h1>
