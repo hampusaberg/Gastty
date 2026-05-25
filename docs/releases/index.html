@@ -83,6 +83,20 @@
 </head>
 <body>
   <div class="page-header">Gastty — All Releases</div>
+  <section class="release" id="0-7-4">
+    <div class="release-tag">v0.7.4<span class="pub-date">Mon, 25 May 2026</span></div>
+    <h1 class="release-title">v0.7.4</h1>
+    <h2>What's new</h2>
+<ul>
+<li><strong>Settings → Keyboard.</strong> A new tab in Settings lets you rebind any of Gastty's menu shortcuts — New Window, New Tab, Close, Quick Connect…, Toggle Connections Sidebar, Connections…, Zoom In/Out, Actual Size. Click a shortcut to record a new combo; <strong>Esc</strong> cancels, <strong>Delete</strong> clears, the per-row undo arrow resets one binding, "Restore All Defaults" wipes everything.</li>
+<li><strong>Shortcut conflict diagnostics.</strong> If something on your system is claiming a keyboard shortcut Gastty wanted to use, the first window after launch now tells you what — and offers a one-click jump into System Settings to fix it. Two detection layers:
+<ul>
+<li><strong>Exact</strong>: scans macOS App Shortcuts overrides and names the conflict precisely ("App Shortcuts remapped Quick Connect… to ⌘J").</li>
+<li><strong>Behavioural</strong>: notices when a Cmd-combo passes through but the matching menu action doesn't fire — surfaces "something else is intercepting this — possibly Karabiner-Elements, Raycast, BetterTouchTool, or Shortcat." (macOS has no API to name third-party event-tap apps, so this is the best we can do — but it's enough to point you in the right direction.)</li>
+</ul>
+</li>
+</ul>
+  </section>
   <section class="release" id="0-7-3">
     <div class="release-tag">v0.7.3<span class="pub-date">Fri, 22 May 2026</span></div>
     <h1 class="release-title">v0.7.3</h1>

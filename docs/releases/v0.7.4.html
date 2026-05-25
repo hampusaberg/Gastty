@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gastty v0.7.4</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ffffff;
+      --text: #1d1d1f;
+      --secondary: #6e6e73;
+      --code-bg: #f0f0f0;
+      --pre-bg: #f5f5f7;
+      --link: #0066cc;
+      --rule: #e5e5ea;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1c1c1e;
+        --text: #f2f2f7;
+        --secondary: #98989d;
+        --code-bg: #2c2c2e;
+        --pre-bg: #2c2c2e;
+        --link: #6ea3ff;
+        --rule: #38383a;
+      }
+    }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+    body {
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 18px 22px;
+    }
+    .tag-header { color: var(--secondary); font-size: 0.85em; margin-bottom: 0.4em; }
+    h1, h2, h3 { font-weight: 600; line-height: 1.25; margin: 1.2em 0 0.35em; }
+    h1 { font-size: 1.4em; margin-top: 0; }
+    h2 { font-size: 1.15em; }
+    h3 { font-size: 1.05em; }
+    p { margin: 0.5em 0; }
+    ul, ol { margin: 0.3em 0 0.7em 1.4em; padding: 0; }
+    li { margin: 0.15em 0; }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: var(--code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 3px;
+    }
+    pre {
+      background: var(--pre-bg);
+      padding: 0.7em 0.9em;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 0.7em 0;
+    }
+    pre code { background: transparent; padding: 0; font-size: 0.85em; }
+    blockquote {
+      margin: 0.5em 0;
+      padding: 0 0.8em;
+      border-left: 3px solid var(--rule);
+      color: var(--secondary);
+    }
+    hr { border: none; border-top: 1px solid var(--rule); margin: 1em 0; }
+    table { border-collapse: collapse; margin: 0.7em 0; }
+    th, td { padding: 0.35em 0.7em; border: 1px solid var(--rule); }
+    img { max-width: 100%; }
+  </style>
+</head>
+<body>
+  <div class="tag-header">Gastty v0.7.4</div>
+  <h2>What's new</h2>
+<ul>
+<li><strong>Settings → Keyboard.</strong> A new tab in Settings lets you rebind any of Gastty's menu shortcuts — New Window, New Tab, Close, Quick Connect…, Toggle Connections Sidebar, Connections…, Zoom In/Out, Actual Size. Click a shortcut to record a new combo; <strong>Esc</strong> cancels, <strong>Delete</strong> clears, the per-row undo arrow resets one binding, "Restore All Defaults" wipes everything.</li>
+<li><strong>Shortcut conflict diagnostics.</strong> If something on your system is claiming a keyboard shortcut Gastty wanted to use, the first window after launch now tells you what — and offers a one-click jump into System Settings to fix it. Two detection layers:
+<ul>
+<li><strong>Exact</strong>: scans macOS App Shortcuts overrides and names the conflict precisely ("App Shortcuts remapped Quick Connect… to ⌘J").</li>
+<li><strong>Behavioural</strong>: notices when a Cmd-combo passes through but the matching menu action doesn't fire — surfaces "something else is intercepting this — possibly Karabiner-Elements, Raycast, BetterTouchTool, or Shortcat." (macOS has no API to name third-party event-tap apps, so this is the best we can do — but it's enough to point you in the right direction.)</li>
+</ul>
+</li>
+</ul>
+</body>
+</html>
