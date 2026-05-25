@@ -17,6 +17,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: SettingsWindowController?
     private var onboardingWindow: OnboardingWindowController?
 
+    /// Watches for menu shortcut conflicts — both the exact, named
+    /// variety (App Shortcuts overrides) and the behavioural variety
+    /// (third-party event-tap interceptors). Holds the lifetime of
+    /// the NSEvent monitor.
+    private let conflictDetector = ShortcutConflictDetector()
+    /// Conflicts surfaced once we have a window to attach a sheet to.
+    /// Drained when the first terminal window opens.
+    private var pendingConflictDiagnostics: [ShortcutConflict] = []
+    /// True once we've shown a conflict diagnostic this session.
+    /// Don't badger the user repeatedly inside one launch.
+    private var didShowConflictDiagnostic = false
+
     /// Sparkle's controller — owns the background update timer + the UI
     /// it presents when a new version is available. Held by AppDelegate
     /// for the app's lifetime. Reads its config from Info.plist
@@ -98,6 +110,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: SettingsStore.changedNotification,
             object: nil
         )
+
+        // Rebuild the main menu whenever the shortcut registry changes
+        // so user remaps apply immediately — no relaunch needed.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(shortcutsDidChange(_:)),
+            name: ShortcutRegistry.changedNotification,
+            object: nil
+        )
+
+        // Hunt for shortcut conflicts. Exact App-Shortcuts overrides
+        // are queued for the first window to display; the behavioural
+        // monitor stays running for the whole session and surfaces
+        // event-tap interceptors as they happen.
+        pendingConflictDiagnostics = conflictDetector.scanForKnownConflicts()
+        conflictDetector.startBehaviouralMonitoring()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(behaviouralConflictsDetected(_:)),
+            name: ShortcutConflictDetector.conflictsDetectedNotification,
+            object: nil
+        )
     }
 
     // MARK: - Workspace switching
@@ -156,6 +190,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for controller in controllers {
             controller.applySettings(SettingsStore.shared.settings)
         }
+    }
+
+    @objc private func shortcutsDidChange(_ note: Notification) {
+        NSApp.mainMenu = makeMainMenu()
+    }
+
+    @objc private func behaviouralConflictsDetected(_ note: Notification) {
+        guard let conflicts = note.object as? [ShortcutConflict] else { return }
+        pendingConflictDiagnostics.append(contentsOf: conflicts)
+        flushPendingConflictsIfPossible()
+    }
+
+    /// Present the conflict alert if we have something to say AND a
+    /// window to anchor a sheet to. Called from both detector paths
+    /// (launch scan + behavioural monitor) and after each new window
+    /// opens. Idempotent and self-throttling — only fires once per
+    /// launch even if both detection layers find issues.
+    private func flushPendingConflictsIfPossible() {
+        guard !pendingConflictDiagnostics.isEmpty,
+              !didShowConflictDiagnostic,
+              let window = NSApp.keyWindow ?? controllers.first?.window else {
+            return
+        }
+        let conflicts = pendingConflictDiagnostics
+        pendingConflictDiagnostics.removeAll()
+        didShowConflictDiagnostic = true
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = conflicts.count == 1
+            ? "A keyboard shortcut isn't working"
+            : "\(conflicts.count) keyboard shortcuts aren't working"
+        alert.informativeText = Self.describe(conflicts: conflicts)
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Open macOS Keyboard Settings")
+        alert.addButton(withTitle: "Ignore")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard let self else { return }
+            switch response {
+            case .alertFirstButtonReturn:
+                self.showSettings(nil)
+            case .alertSecondButtonReturn:
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.keyboard?Shortcuts") {
+                    NSWorkspace.shared.open(url)
+                }
+            default:
+                break
+            }
+        }
+    }
+
+    /// Human-readable rollup of detected conflicts. Distinguishes
+    /// exact (macOS App Shortcuts remap) from behavioural (event-tap
+    /// app of unknown identity) so the user knows where to look.
+    private static func describe(conflicts: [ShortcutConflict]) -> String {
+        let lines: [String] = conflicts.map { c in
+            let original = c.originalBinding.displayString
+            switch c.source {
+            case .appShortcutsOverride(let to):
+                if let to {
+                    return "• \(c.menuTitle) (was \(original)) — macOS App Shortcuts remapped this to \(to.displayString)."
+                }
+                return "• \(c.menuTitle) (was \(original)) — macOS App Shortcuts has remapped it."
+            case .eventTapInterception:
+                return "• \(c.menuTitle) (\(original)) — something else is intercepting this keypress. Likely a keyboard utility like Karabiner-Elements, Raycast, BetterTouchTool, or Shortcat."
+            }
+        }
+        return lines.joined(separator: "\n\n") + "\n\nYou can also reassign these shortcuts under Gastty Settings → Keyboard."
     }
 
     /// Probe the appcast on launch and, if a newer version is shipping,
@@ -385,20 +487,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             controllers.append(controller)
             controller.window?.makeKeyAndOrderFront(nil)
         }
+        // Once we have a window, attach any pending shortcut-conflict
+        // diagnostics — same hook openNewWindow uses.
+        flushPendingConflictsIfPossible()
     }
 
     // MARK: - Window/tab actions (responder-chain entry points)
 
     @objc func openNewWindow(_ sender: Any?) {
+        conflictDetector.noteActionFired(for: "newWindow")
         let controller = TerminalWindowController(runtime: .shared)
         controllers.append(controller)
         controller.window?.makeKeyAndOrderFront(sender)
+        // First window of the session is the cue to surface any
+        // shortcut conflicts the detector found at launch.
+        flushPendingConflictsIfPossible()
     }
 
     /// ⌘T — add a tab to the current window. Falls back to opening a new
     /// window if no terminal window is keyed (e.g. the Connections window
     /// is up).
     @objc func newTabInCurrentWindow(_ sender: Any?) {
+        conflictDetector.noteActionFired(for: "newTab")
         if let controller = currentTerminalController() {
             controller.addNewSession()
         } else {
@@ -409,6 +519,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// ⌘W — close the active pane if the current tab has multiple panes,
     /// otherwise close the tab. If it was the last tab, the window closes too.
     @objc func closeActiveSession(_ sender: Any?) {
+        conflictDetector.noteActionFired(for: "closeActive")
         if let controller = currentTerminalController() {
             controller.closeActivePaneOrTab()
         } else {
@@ -427,6 +538,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func showConnectionsWindow(_ sender: Any?) {
+        conflictDetector.noteActionFired(for: "openConnections")
         if connectionsWindow == nil {
             connectionsWindow = ConnectionsWindowController()
         }
@@ -443,11 +555,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// ⌘S — show or hide the saved-connections sidebar on the keyed window.
     @objc func toggleConnectionsSidebar(_ sender: Any?) {
+        conflictDetector.noteActionFired(for: "toggleSidebar")
         guard let controller = currentTerminalController() else { return }
         controller.toggleConnectionsSidebar()
     }
 
     @objc func showQuickConnect(_ sender: Any?) {
+        conflictDetector.noteActionFired(for: "quickConnect")
         if quickConnectPanel == nil {
             quickConnectPanel = QuickConnectPanel(
                 onPick: { [weak self] connection in
@@ -482,6 +596,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - Menu construction
+
+    /// Add an NSMenuItem whose title + key equivalent come from the
+    /// `ShortcutRegistry`. Looks up by stable `id` so renaming the
+    /// menu label (or letting a user remap the shortcut) doesn't
+    /// require touching this code. Defaults `target` to `self`; pass
+    /// `nil` to leave it as a responder-chain action (zoom etc.).
+    @discardableResult
+    private func addRegistryItem(
+        to menu: NSMenu,
+        id: String,
+        action: Selector,
+        target: AnyObject? = nil
+    ) -> NSMenuItem {
+        guard let entry = ShortcutRegistry.shared.entry(for: id) else {
+            // Defensive — registering an unknown id is a programmer
+            // error; render the item with no shortcut so the bug is
+            // visible in-app.
+            return menu.addItem(withTitle: id, action: action, keyEquivalent: "")
+        }
+        let binding = ShortcutRegistry.shared.binding(for: id)
+        let item = menu.addItem(withTitle: entry.menuTitle,
+                                action: action,
+                                keyEquivalent: binding.key)
+        item.keyEquivalentModifierMask = binding.mods.eventFlags
+        item.target = (target ?? self)
+        return item
+    }
 
     private func makeMainMenu() -> NSMenu {
         let main = NSMenu()
@@ -527,24 +668,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fileItem = NSMenuItem(); main.addItem(fileItem)
         let fileMenu = NSMenu(title: "File"); fileItem.submenu = fileMenu
 
-        fileMenu.addItem(withTitle: "New Window",
-                         action: #selector(openNewWindow(_:)),
-                         keyEquivalent: "n").target = self
-        fileMenu.addItem(withTitle: "New Tab",
-                         action: #selector(newTabInCurrentWindow(_:)),
-                         keyEquivalent: "t").target = self
+        addRegistryItem(to: fileMenu, id: "newWindow",
+                        action: #selector(openNewWindow(_:)))
+        addRegistryItem(to: fileMenu, id: "newTab",
+                        action: #selector(newTabInCurrentWindow(_:)))
         fileMenu.addItem(.separator())
-        let quick = fileMenu.addItem(withTitle: "Quick Connect…",
-                                     action: #selector(showQuickConnect(_:)),
-                                     keyEquivalent: "k")
-        quick.target = self
-        fileMenu.addItem(withTitle: "Connections…",
-                         action: #selector(showConnectionsWindow(_:)),
-                         keyEquivalent: "").target = self
+        addRegistryItem(to: fileMenu, id: "quickConnect",
+                        action: #selector(showQuickConnect(_:)))
+        addRegistryItem(to: fileMenu, id: "openConnections",
+                        action: #selector(showConnectionsWindow(_:)))
         fileMenu.addItem(.separator())
-        fileMenu.addItem(withTitle: "Close",
-                         action: #selector(closeActiveSession(_:)),
-                         keyEquivalent: "w").target = self
+        addRegistryItem(to: fileMenu, id: "closeActive",
+                        action: #selector(closeActiveSession(_:)))
 
         // ---- Edit (handled by SurfaceHostView via responder chain)
         let editItem = NSMenuItem(); main.addItem(editItem)
@@ -560,17 +695,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ---- View
         let viewItem = NSMenuItem(); main.addItem(viewItem)
         let viewMenu = NSMenu(title: "View"); viewItem.submenu = viewMenu
-        let sidebarItem = viewMenu.addItem(withTitle: "Toggle Connections Sidebar",
-                                           action: #selector(toggleConnectionsSidebar(_:)),
-                                           keyEquivalent: "s")
-        sidebarItem.target = self
+        addRegistryItem(to: viewMenu, id: "toggleSidebar",
+                        action: #selector(toggleConnectionsSidebar(_:)))
         viewMenu.addItem(.separator())
-        viewMenu.addItem(withTitle: "Zoom In",
-                         action: #selector(SurfaceHostView.zoomIn(_:)), keyEquivalent: "+")
-        viewMenu.addItem(withTitle: "Zoom Out",
-                         action: #selector(SurfaceHostView.zoomOut(_:)), keyEquivalent: "-")
-        viewMenu.addItem(withTitle: "Actual Size",
-                         action: #selector(SurfaceHostView.zoomReset(_:)), keyEquivalent: "0")
+        // Zoom actions target the responder chain (SurfaceHostView), so
+        // pass `nil` for the menu-item target — AppKit will route via
+        // the chain rather than directly at AppDelegate.
+        addRegistryItem(to: viewMenu, id: "zoomIn",
+                        action: #selector(SurfaceHostView.zoomIn(_:)),
+                        target: nil)
+        addRegistryItem(to: viewMenu, id: "zoomOut",
+                        action: #selector(SurfaceHostView.zoomOut(_:)),
+                        target: nil)
+        addRegistryItem(to: viewMenu, id: "zoomReset",
+                        action: #selector(SurfaceHostView.zoomReset(_:)),
+                        target: nil)
 
         // ---- Window
         let windowItem = NSMenuItem(); main.addItem(windowItem)

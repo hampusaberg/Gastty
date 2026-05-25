@@ -25,7 +25,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 340),
+            contentRect: NSRect(x: 0, y: 0, width: 540, height: 520),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered, defer: false
         )
@@ -34,7 +34,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         super.init(window: window)
         window.delegate = self
-        buildLayout()
+        buildTabbedLayout()
         loadFromStore()
     }
 
@@ -42,9 +42,48 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: - Layout
 
-    private func buildLayout() {
+    /// Wraps the existing Appearance grid inside an NSTabView and
+    /// adds the Keyboard pane alongside. The Appearance pane keeps
+    /// its existing layout exactly — `buildAppearanceLayout` is the
+    /// pre-tabs code, lifted verbatim into its own method.
+    private func buildTabbedLayout() {
         guard let content = window?.contentView else { return }
 
+        let tabView = NSTabView()
+        tabView.translatesAutoresizingMaskIntoConstraints = false
+
+        let appearance = NSTabViewItem(identifier: "appearance")
+        appearance.label = "Appearance"
+        let appearanceContainer = NSView()
+        appearance.view = appearanceContainer
+        tabView.addTabViewItem(appearance)
+
+        let keyboard = NSTabViewItem(identifier: "keyboard")
+        keyboard.label = "Keyboard"
+        let keyboardContainer = NSView()
+        let keyboardView = KeyboardShortcutsView()
+        keyboardContainer.addSubview(keyboardView)
+        NSLayoutConstraint.activate([
+            keyboardView.topAnchor.constraint(equalTo: keyboardContainer.topAnchor),
+            keyboardView.leadingAnchor.constraint(equalTo: keyboardContainer.leadingAnchor),
+            keyboardView.trailingAnchor.constraint(equalTo: keyboardContainer.trailingAnchor),
+            keyboardView.bottomAnchor.constraint(equalTo: keyboardContainer.bottomAnchor),
+        ])
+        keyboard.view = keyboardContainer
+        tabView.addTabViewItem(keyboard)
+
+        content.addSubview(tabView)
+        NSLayoutConstraint.activate([
+            tabView.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
+            tabView.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            tabView.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            tabView.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
+        ])
+
+        buildAppearanceLayout(in: appearanceContainer)
+    }
+
+    private func buildAppearanceLayout(in content: NSView) {
         let grid = NSGridView()
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.columnSpacing = 12
