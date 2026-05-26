@@ -83,6 +83,14 @@
 </head>
 <body>
   <div class="page-header">Gastty — All Releases</div>
+  <section class="release" id="0-7-5">
+    <div class="release-tag">v0.7.5<span class="pub-date">Tue, 26 May 2026</span></div>
+    <h1 class="release-title">v0.7.5</h1>
+    <h2>Fixes</h2>
+<ul>
+<li><strong>Keyboard shortcuts stop working after the Mac wakes from sleep.</strong> ⌘W would close the whole app instead of the active tab/pane, ⌘T would pop a false "this shortcut is being intercepted" alert, and you'd have to quit and relaunch to recover. AppKit's menu dispatch can transiently fail after a long sleep — Gastty now subscribes to <code class="notranslate">NSWorkspace.didWakeNotification</code>, rebuilds the main menu so every menu item gets re-validated fresh, and pauses the conflict-detection logic for five seconds so the recovery transient doesn't trip a false alert.</li>
+</ul>
+  </section>
   <section class="release" id="0-7-4">
     <div class="release-tag">v0.7.4<span class="pub-date">Mon, 25 May 2026</span></div>
     <h1 class="release-title">v0.7.4</h1>
