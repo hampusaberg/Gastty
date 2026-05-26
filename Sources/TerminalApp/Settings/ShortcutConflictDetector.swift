@@ -57,6 +57,11 @@ final class ShortcutConflictDetector {
     private var pendingFires: [String: Date] = [:]   // entryId → keypress timestamp
     private var seenBehaviouralConflicts: Set<String> = []
     private var monitor: Any?
+    /// When non-nil, behavioural detection is paused until this
+    /// date. Set by `suppressBehaviouralDetection(for:)` after wake
+    /// from sleep so a brief AppKit transient doesn't trip a
+    /// false-positive interception alert.
+    private var suppressedUntil: Date?
 
     /// Window during which we expect a menu action to fire after the
     /// matching keypress. AppKit's menu dispatch is essentially
@@ -119,9 +124,27 @@ final class ShortcutConflictDetector {
         pendingFires.removeValue(forKey: entryId)
     }
 
+    /// Temporarily pause behavioural detection. AppDelegate calls
+    /// this on wake from sleep because AppKit's menu dispatch can
+    /// transiently miss for a few seconds after a long sleep — we
+    /// don't want to surface a false "something is intercepting"
+    /// alert during that recovery window. Clears any pending fires
+    /// queued before the suppression so we don't backlog into an
+    /// alert the moment the window expires.
+    func suppressBehaviouralDetection(for seconds: TimeInterval) {
+        suppressedUntil = Date().addingTimeInterval(seconds)
+        pendingFires.removeAll()
+    }
+
     // MARK: Private — keydown bookkeeping
 
     private func recordKeyDown(_ event: NSEvent) {
+        // Honour suppression — set by AppDelegate after wake so we
+        // don't flag the brief post-sleep menu-dispatch wobble.
+        if let until = suppressedUntil {
+            if Date() < until { return }
+            suppressedUntil = nil
+        }
         // We only care about Cmd-modified events — anything without
         // Cmd is normal terminal input.
         guard event.modifierFlags.contains(.command) else { return }

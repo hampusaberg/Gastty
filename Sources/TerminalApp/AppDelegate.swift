@@ -132,6 +132,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: ShortcutConflictDetector.conflictsDetectedNotification,
             object: nil
         )
+
+        // After a long sleep, AppKit's menu keyEquivalent dispatch
+        // can transiently fail — our action handlers don't fire,
+        // ⌘W falls through to AppKit's default "close window", and
+        // the behavioural conflict detector then correctly notices
+        // the miss and pops a false-positive "something else is
+        // intercepting this" alert. Two-part fix: rebuild the main
+        // menu so AppKit re-evaluates target/action validation
+        // fresh, AND tell the detector to ignore misses for a few
+        // seconds so the transient post-wake window doesn't trip
+        // it. NSWorkspace (not NotificationCenter) owns sleep/wake
+        // notifications.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(systemDidWake(_:)),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
     }
 
     // MARK: - Workspace switching
@@ -194,6 +212,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func shortcutsDidChange(_ note: Notification) {
         NSApp.mainMenu = makeMainMenu()
+    }
+
+    /// macOS wake from sleep. Rebuild the main menu so AppKit
+    /// re-validates every target/action (sometimes stale after a
+    /// long sleep), and pause behavioural conflict detection for a
+    /// few seconds so the post-wake transient doesn't fire a
+    /// false-positive interception alert.
+    @objc private func systemDidWake(_ note: Notification) {
+        NSApp.mainMenu = makeMainMenu()
+        conflictDetector.suppressBehaviouralDetection(for: 5)
     }
 
     @objc private func behaviouralConflictsDetected(_ note: Notification) {
