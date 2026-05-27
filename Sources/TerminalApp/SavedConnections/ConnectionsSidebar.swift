@@ -10,6 +10,7 @@ final class ConnectionsSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
     var onPick: ((SavedConnection) -> Void)?
     var onManageConnections: (() -> Void)?
+    weak var hostWindow: NSWindow?
 
     private enum Row {
         case folder(ConnectionFolder)
@@ -21,6 +22,7 @@ final class ConnectionsSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     private let header = NSView()
     private let titleLabel = NSTextField(labelWithString: "Connections")
     private let manageButton = NSButton()
+    private let addFolderButton = NSButton()
 
     /// Snapshot of folders displayed at the top level.
     private var folders: [ConnectionFolder] = []
@@ -75,6 +77,17 @@ final class ConnectionsSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         manageButton.translatesAutoresizingMaskIntoConstraints = false
         header.addSubview(manageButton)
 
+        addFolderButton.isBordered = false
+        addFolderButton.bezelStyle = .regularSquare
+        addFolderButton.image = NSImage(systemSymbolName: "folder.badge.plus",
+                                        accessibilityDescription: "New folder")
+        addFolderButton.imagePosition = .imageOnly
+        addFolderButton.toolTip = "New Folder"
+        addFolderButton.target = self
+        addFolderButton.action = #selector(addFolder(_:))
+        addFolderButton.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(addFolderButton)
+
         outline.headerView = nil
         outline.rowSizeStyle = .small
         outline.allowsMultipleSelection = false
@@ -116,6 +129,10 @@ final class ConnectionsSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             manageButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
             manageButton.widthAnchor.constraint(equalToConstant: 20),
             manageButton.heightAnchor.constraint(equalToConstant: 20),
+            addFolderButton.trailingAnchor.constraint(equalTo: manageButton.leadingAnchor, constant: -4),
+            addFolderButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            addFolderButton.widthAnchor.constraint(equalToConstant: 20),
+            addFolderButton.heightAnchor.constraint(equalToConstant: 20),
             scrollView.topAnchor.constraint(equalTo: header.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -134,16 +151,133 @@ final class ConnectionsSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
     @objc private func reload() {
         let store = ConnectionStore.shared
-        folders = store.folders
+        folders = store.folders          // ALL folders — used by folderItem lookup
         rootConnections = store.rootConnections
+        // Clear the cache so stale/empty-name stubs from earlier calls don't
+        // persist. Items are recreated with fresh data during reloadData().
+        folderItems = [:]
         outline.reloadData()
-        for folder in folders where !collapsedFolderIDs.contains(folder.id) {
-            outline.expandItem(folderItem(for: folder.id))
+        // Expand top-level folders that haven't been collapsed by the user;
+        // expandChildren: true recurses into sub-folders automatically.
+        for folder in store.topLevelFolders where !collapsedFolderIDs.contains(folder.id) {
+            outline.expandItem(folderItem(for: folder.id), expandChildren: true)
         }
     }
 
     @objc private func openManage(_ sender: Any?) {
         onManageConnections?()
+    }
+
+    @objc private func addFolder(_ sender: Any?) {
+        guard let window = hostWindow ?? self.window else { return }
+        FolderNameEditor.present(over: window, existingName: nil) { name in
+            ConnectionStore.shared.addFolder(name: name)
+        }
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = outline.convert(event.locationInWindow, from: nil)
+        let row = outline.row(at: point)
+        guard row >= 0,
+              let item = outline.item(atRow: row) as? RowItem else { return nil }
+
+        let menu = NSMenu()
+
+        switch item.row {
+        case .connection(let connection):
+            let edit = menu.addItem(withTitle: "Edit…",
+                                    action: #selector(editConnection(_:)),
+                                    keyEquivalent: "")
+            edit.representedObject = connection
+            edit.target = self
+            menu.addItem(.separator())
+            let remove = menu.addItem(withTitle: "Remove",
+                                      action: #selector(removeConnection(_:)),
+                                      keyEquivalent: "")
+            remove.representedObject = connection
+            remove.target = self
+
+        case .folder(let folder):
+            let sub = menu.addItem(withTitle: "New Sub-folder…",
+                                   action: #selector(addSubFolder(_:)),
+                                   keyEquivalent: "")
+            sub.representedObject = folder
+            sub.target = self
+            menu.addItem(.separator())
+            let rename = menu.addItem(withTitle: "Rename Folder…",
+                                      action: #selector(renameFolder(_:)),
+                                      keyEquivalent: "")
+            rename.representedObject = folder
+            rename.target = self
+            let delete = menu.addItem(withTitle: "Delete Folder",
+                                      action: #selector(deleteFolder(_:)),
+                                      keyEquivalent: "")
+            delete.representedObject = folder
+            delete.target = self
+        }
+
+        return menu
+    }
+
+    @objc private func addSubFolder(_ sender: NSMenuItem) {
+        guard let folder = sender.representedObject as? ConnectionFolder,
+              let window = hostWindow ?? self.window else { return }
+        FolderNameEditor.present(over: window, existingName: nil) { name in
+            ConnectionStore.shared.addFolder(name: name, parentID: folder.id)
+        }
+    }
+
+    @objc private func renameFolder(_ sender: NSMenuItem) {
+        guard let folder = sender.representedObject as? ConnectionFolder,
+              let window = hostWindow ?? self.window else { return }
+        FolderNameEditor.present(over: window, existingName: folder.name) { name in
+            ConnectionStore.shared.renameFolder(folder.id, to: name)
+        }
+    }
+
+    @objc private func deleteFolder(_ sender: NSMenuItem) {
+        guard let folder = sender.representedObject as? ConnectionFolder,
+              let window = hostWindow ?? self.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Delete folder \"\(folder.name.isEmpty ? "Untitled" : folder.name)\"?"
+        let count = ConnectionStore.shared.connections(in: folder.id).count
+        alert.informativeText = count == 0
+            ? "The folder is empty."
+            : "\(count) connection\(count == 1 ? "" : "s") inside will move back to the root."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            ConnectionStore.shared.removeFolder(folder.id)
+        }
+    }
+
+    @objc private func editConnection(_ sender: NSMenuItem) {
+        guard let connection = sender.representedObject as? SavedConnection,
+              let window = hostWindow ?? self.window else { return }
+        ConnectionEditor.present(over: window, editing: connection) { conn, workspaces in
+            ConnectionStore.shared.update(conn)
+            ConnectionStore.shared.setWorkspaces(workspaces, for: conn.id)
+        }
+    }
+
+    @objc private func removeConnection(_ sender: NSMenuItem) {
+        guard let connection = sender.representedObject as? SavedConnection,
+              let window = hostWindow ?? self.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Remove \"\(connection.displayName)\"?"
+        let inOthers = ConnectionStore.shared.workspaces(for: connection.id)
+            .subtracting([WorkspaceStore.shared.activeID])
+            .count
+        alert.informativeText = inOthers > 0
+            ? "It will stay in \(inOthers) other workspace\(inOthers == 1 ? "" : "s")."
+            : "This can't be undone."
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            ConnectionStore.shared.remove(connection)
+        }
     }
 
     @objc private func rowSingleClicked(_ sender: Any?) {
@@ -192,25 +326,27 @@ final class ConnectionsSidebar: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
+        let store = ConnectionStore.shared
         guard let item = item as? RowItem else {
-            return folders.count + rootConnections.count
+            return store.topLevelFolders.count + rootConnections.count
         }
         if case .folder(let f) = item.row {
-            return ConnectionStore.shared.connections(in: f.id).count
+            return store.subFolders(of: f.id).count + store.connections(in: f.id).count
         }
         return 0
     }
 
     func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
+        let store = ConnectionStore.shared
         if let item = item as? RowItem, case .folder(let f) = item.row {
-            let kids = ConnectionStore.shared.connections(in: f.id)
-            return RowItem(.connection(kids[index]))
+            let subs = store.subFolders(of: f.id)
+            if index < subs.count { return folderItem(for: subs[index].id) }
+            let conns = store.connections(in: f.id)
+            return RowItem(.connection(conns[index - subs.count]))
         }
-        if index < folders.count {
-            return folderItem(for: folders[index].id)
-        }
-        let connIndex = index - folders.count
-        return RowItem(.connection(rootConnections[connIndex]))
+        let top = store.topLevelFolders
+        if index < top.count { return folderItem(for: top[index].id) }
+        return RowItem(.connection(rootConnections[index - top.count]))
     }
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {

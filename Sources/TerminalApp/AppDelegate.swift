@@ -611,7 +611,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             new.window?.makeKeyAndOrderFront(nil)
             return new
         }()
-        controller.addNewSession(title: connection.displayName, command: connection.sshCommand)
+        let credential = connection.credentialID.flatMap {
+            CredentialStore.shared.credential(id: $0)
+        }
+        let command = CredentialStore.applyPasswordInjection(
+            to: connection.sshCommand(with: credential),
+            connection: connection)
+        controller.addNewSession(title: connection.displayName, command: command)
     }
 
     func purge(_ controller: TerminalWindowController) {
