@@ -83,6 +83,14 @@
 </head>
 <body>
   <div class="page-header">Gastty — All Releases</div>
+  <section class="release" id="0-7-6">
+    <div class="release-tag">v0.7.6<span class="pub-date">Thu, 28 May 2026</span></div>
+    <h1 class="release-title">v0.7.6</h1>
+    <h2>Fixes</h2>
+<ul>
+<li><strong>Keyboard shortcuts, cursor highlight, and Ctrl+W now survive an overnight sleep.</strong> v0.7.5 handled a quick <code class="notranslate">pmset sleepnow</code>, but a real deep sleep left three things broken until app restart: ⌘W / ⌘T would silently miss, the cursor stopped highlighting, and Ctrl+W typed gibberish (<code class="notranslate">5u9;5u9;5u…</code>) instead of deleting words. All three were symptoms of libghostty's focus state desyncing from AppKit's after deep sleep. Gastty now re-pushes surface focus to libghostty whenever a window becomes key, rebuilds the menu on both wake-from-sleep and app-becomes-active, and reinstalls its keyboard-event monitor after each wake to clear any stale CFRunLoop state.</li>
+</ul>
+  </section>
   <section class="release" id="0-7-5">
     <div class="release-tag">v0.7.5<span class="pub-date">Tue, 26 May 2026</span></div>
     <h1 class="release-title">v0.7.5</h1>
