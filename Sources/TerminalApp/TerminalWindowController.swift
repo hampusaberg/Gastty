@@ -496,6 +496,31 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
 
     // MARK: - NSWindowDelegate
 
+    /// Force-push surface focus to libghostty whenever the window
+    /// becomes key. Without this, after a deep sleep AppKit may not
+    /// re-make the surface view the firstResponder, so libghostty
+    /// stays in "unfocused" state — the cursor stops highlighting,
+    /// and the kitty keyboard protocol behaves differently (Ctrl+W
+    /// in particular ends up echoing the tail of its CSI encoding
+    /// as literal text instead of acting as delete-word).
+    func windowDidBecomeKey(_ notification: Notification) {
+        refreshSurfaceFocus()
+    }
+
+    /// Re-assert focus on the active session's surface. Called from
+    /// windowDidBecomeKey and from AppDelegate on wake/become-active
+    /// so the libghostty focus state is always synced with what the
+    /// user sees.
+    func refreshSurfaceFocus() {
+        guard let active = tabBar.activeSession else { return }
+        if let surface = active.activeSurface.surface {
+            ghostty_surface_set_focus(surface, true)
+        }
+        // Also kick AppKit into making the surface view the
+        // firstResponder so keyDown events route correctly.
+        window?.makeFirstResponder(active.activeSurface)
+    }
+
     func windowWillClose(_ notification: Notification) {
         if let app = NSApp.delegate as? AppDelegate {
             app.purge(self)

@@ -117,6 +117,23 @@ final class ShortcutConflictDetector {
         // AppDelegate.
     }
 
+    /// Tear down and reinstall the NSEvent monitor. After a deep
+    /// sleep the monitor's underlying CFRunLoop source can be in a
+    /// stale state — calls to `recordKeyDown` then queue
+    /// `DispatchQueue.main.asyncAfter` closures that fire in the
+    /// wrong order, the pendingFires dictionary fills with stale
+    /// timestamps, and false-positive interception alerts pop. A
+    /// clean removeMonitor + addLocalMonitorForEvents reset gives us
+    /// a fresh, deterministic state.
+    func restartBehaviouralMonitoring() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+        pendingFires.removeAll()
+        startBehaviouralMonitoring()
+    }
+
     /// AppDelegate calls this from inside every shortcut-bound action
     /// handler — confirms "yes, our handler ran" so the detector
     /// doesn't flag the shortcut as swallowed.

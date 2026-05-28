@@ -133,21 +133,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
-        // After a long sleep, AppKit's menu keyEquivalent dispatch
-        // can transiently fail — our action handlers don't fire,
-        // ⌘W falls through to AppKit's default "close window", and
-        // the behavioural conflict detector then correctly notices
-        // the miss and pops a false-positive "something else is
-        // intercepting this" alert. Two-part fix: rebuild the main
-        // menu so AppKit re-evaluates target/action validation
-        // fresh, AND tell the detector to ignore misses for a few
-        // seconds so the transient post-wake window doesn't trip
-        // it. NSWorkspace (not NotificationCenter) owns sleep/wake
-        // notifications.
+        // Wake from sleep AND becoming the active app both need the
+        // same recovery: rebuild the menu (so AppKit re-validates
+        // every target/action), reinstall the conflict detector's
+        // NSEvent monitor (its CFRunLoop source can be stale after
+        // deep sleep), and re-push surface focus to libghostty on
+        // every window (otherwise the cursor stops highlighting and
+        // kitty-protocol keys get encoded for an unfocused surface,
+        // which leaks the tail of CSI sequences as literal text —
+        // exactly the "5u9;5u9" symptom seen after an overnight
+        // sleep). NSWorkspace handles sleep/wake, NSApplication
+        // handles activation — we subscribe to both so neither path
+        // misses.
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
-            selector: #selector(systemDidWake(_:)),
+            selector: #selector(performPostSleepRecovery(_:)),
             name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(performPostSleepRecovery(_:)),
+            name: NSApplication.didBecomeActiveNotification,
             object: nil
         )
     }
@@ -214,14 +221,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = makeMainMenu()
     }
 
-    /// macOS wake from sleep. Rebuild the main menu so AppKit
-    /// re-validates every target/action (sometimes stale after a
-    /// long sleep), and pause behavioural conflict detection for a
-    /// few seconds so the post-wake transient doesn't fire a
-    /// false-positive interception alert.
-    @objc private func systemDidWake(_ note: Notification) {
+    /// Shared recovery for `NSWorkspace.didWakeNotification` AND
+    /// `NSApplication.didBecomeActiveNotification`. Idempotent — if
+    /// both fire close together the second is a cheap no-op since
+    /// rebuilding the menu and re-pushing focus to surfaces that
+    /// are already in the right state is harmless.
+    ///
+    /// Steps:
+    ///   1. Replace `NSApp.mainMenu` with a freshly-built copy so
+    ///      every `keyEquivalent` and target reference is
+    ///      re-validated. Stale menus are the cause of ⌘T / ⌘W
+    ///      silently failing after wake.
+    ///   2. Reinstall the conflict detector's NSEvent monitor.
+    ///      The CFRunLoop event source backing the monitor can be
+    ///      in an undefined state after deep sleep — a clean
+    ///      remove + re-add resets it.
+    ///   3. Suppress behavioural conflict detection for 8 seconds
+    ///      (up from 5 — overnight sleep recovery is slower than
+    ///      `pmset sleepnow`) to swallow any transient missed
+    ///      dispatches during AppKit's own recovery.
+    ///   4. Re-push surface focus to every open window. AppKit
+    ///      doesn't reliably restore firstResponder across deep
+    ///      sleep, so libghostty thinks the surface is unfocused
+    ///      and serves the unfocused cursor + unfocused-surface
+    ///      key encoding.
+    @objc private func performPostSleepRecovery(_ note: Notification) {
         NSApp.mainMenu = makeMainMenu()
-        conflictDetector.suppressBehaviouralDetection(for: 5)
+        conflictDetector.restartBehaviouralMonitoring()
+        conflictDetector.suppressBehaviouralDetection(for: 8)
+        for controller in controllers {
+            controller.refreshSurfaceFocus()
+        }
     }
 
     @objc private func behaviouralConflictsDetected(_ note: Notification) {
