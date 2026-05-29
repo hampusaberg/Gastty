@@ -83,6 +83,15 @@
 </head>
 <body>
   <div class="page-header">Gastty — All Releases</div>
+  <section class="release" id="0-7-8">
+    <div class="release-tag">v0.7.8<span class="pub-date">Fri, 29 May 2026</span></div>
+    <h1 class="release-title">v0.7.8</h1>
+    <h2>Fixes</h2>
+<ul>
+<li><strong>Paste no longer breaks on connections going through a ProxyJump host.</strong> Without explicit PTY allocation, certain SSH server configurations don't put the remote terminal into raw mode when the session is tunnelled via <code class="notranslate">-J</code>, which silently broke paste and a few other terminal modes. Gastty now passes <code class="notranslate">-t</code> alongside <code class="notranslate">-J</code> to force PTY allocation on the target.</li>
+</ul>
+<p>Thanks <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/tomas-openinfra/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/tomas-openinfra">@tomas-openinfra</a>  for the PR.</p>
+  </section>
   <section class="release" id="0-7-7">
     <div class="release-tag">v0.7.7<span class="pub-date">Fri, 29 May 2026</span></div>
     <h1 class="release-title">v0.7.7</h1>
