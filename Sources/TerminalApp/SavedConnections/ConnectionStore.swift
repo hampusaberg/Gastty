@@ -51,9 +51,31 @@ final class ConnectionStore {
 
     // MARK: - Convenience accessors for the active workspace
 
-    /// Active workspace's folders, in display order.
+    /// All folders in the active workspace, in display order (flat).
     var folders: [ConnectionFolder] {
         foldersByWorkspace[WorkspaceStore.shared.activeID] ?? []
+    }
+
+    /// Top-level folders in the active workspace (parentID == nil).
+    var topLevelFolders: [ConnectionFolder] {
+        folders.filter { $0.parentID == nil }
+    }
+
+    /// Direct sub-folders of `parentID` in the active workspace.
+    func subFolders(of parentID: UUID) -> [ConnectionFolder] {
+        folders.filter { $0.parentID == parentID }
+    }
+
+    /// True if `folderID` is an ancestor of `targetID` in `folders`.
+    /// Used to prevent cycles when nesting folders.
+    func wouldCreateCycle(moving folderID: UUID, into targetID: UUID?) -> Bool {
+        guard let targetID else { return false }
+        var current: UUID? = targetID
+        while let cur = current {
+            if cur == folderID { return true }
+            current = folders.first(where: { $0.id == cur })?.parentID
+        }
+        return false
     }
 
     /// Connections in the active workspace, in display order. Used by
@@ -232,8 +254,8 @@ final class ConnectionStore {
     // MARK: - Folder mutations (active workspace)
 
     @discardableResult
-    func addFolder(name: String) -> ConnectionFolder {
-        let folder = ConnectionFolder(name: name)
+    func addFolder(name: String, parentID: UUID? = nil) -> ConnectionFolder {
+        let folder = ConnectionFolder(name: name, parentID: parentID)
         let wsID = WorkspaceStore.shared.activeID
         var folders = foldersByWorkspace[wsID] ?? []
         folders.append(folder)
@@ -255,13 +277,19 @@ final class ConnectionStore {
 
     func removeFolder(_ folderID: UUID) {
         let wsID = WorkspaceStore.shared.activeID
+        let newParent = foldersByWorkspace[wsID]?.first(where: { $0.id == folderID })?.parentID
         if var folders = foldersByWorkspace[wsID] {
+            // Re-parent direct sub-folders to the deleted folder's parent.
+            for i in folders.indices where folders[i].parentID == folderID {
+                folders[i].parentID = newParent
+            }
             folders.removeAll { $0.id == folderID }
             foldersByWorkspace[wsID] = folders
         }
         if var refs = refsByWorkspace[wsID] {
+            // Move connections in this folder up to the parent (or root).
             for i in refs.indices where refs[i].folderID == folderID {
-                refs[i].folderID = nil
+                refs[i].folderID = newParent
             }
             refsByWorkspace[wsID] = refs
         }
@@ -269,13 +297,22 @@ final class ConnectionStore {
         notify()
     }
 
-    func moveFolder(_ folderID: UUID, to index: Int) {
+    func moveFolder(_ folderID: UUID, toParent parentID: UUID?, at index: Int) {
         let wsID = WorkspaceStore.shared.activeID
         guard var folders = foldersByWorkspace[wsID],
               let currentIdx = folders.firstIndex(where: { $0.id == folderID }) else { return }
-        let folder = folders.remove(at: currentIdx)
-        let clamped = max(0, min(folders.count, index))
-        folders.insert(folder, at: clamped)
+        // Refuse to create a cycle (e.g. dragging a folder into its own sub-folder).
+        if wouldCreateCycle(moving: folderID, into: parentID) { return }
+        var folder = folders.remove(at: currentIdx)
+        folder.parentID = parentID
+        // Find insertion point among siblings with the new parentID.
+        var seen = 0
+        var insertion = folders.count
+        for (i, f) in folders.enumerated() where f.parentID == parentID {
+            if seen == index { insertion = i; break }
+            seen += 1
+        }
+        folders.insert(folder, at: insertion)
         foldersByWorkspace[wsID] = folders
         saveWorkspace(wsID)
         notify()

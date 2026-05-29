@@ -7,7 +7,8 @@ import AppKit
 /// connections as children) followed by root-level connections. Rows can
 /// be dragged to reorder or to move a connection into / out of a folder.
 final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
-                                          NSOutlineViewDataSource, NSOutlineViewDelegate {
+                                          NSOutlineViewDataSource, NSOutlineViewDelegate,
+                                          NSMenuDelegate {
 
     private let outline = NSOutlineView()
     private let scrollView = NSScrollView()
@@ -16,6 +17,8 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
     private let addFolderButton = NSButton()
     private let editButton = NSButton()
     private let removeButton = NSButton()
+    private let credentialsButton = NSButton()
+    private var credentialsWindowController: CredentialsWindowController?
     /// Switches between "show only this workspace" (folder hierarchy)
     /// and "show every connection across every workspace" (flat list).
     private let modeSegments = NSSegmentedControl(
@@ -90,6 +93,9 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
         outline.target = self
         outline.doubleAction = #selector(editSelected(_:))
         outline.registerForDraggedTypes([Self.dragPasteboardType])
+        let contextMenu = NSMenu()
+        contextMenu.delegate = self
+        outline.menu = contextMenu
 
         let nameCol = NSTableColumn(identifier: .init("name"))
         nameCol.title = "Name"; nameCol.minWidth = 180; nameCol.width = 220
@@ -131,7 +137,7 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
             (addFolderButton, "New Folder", #selector(addFolder(_:))),
             (editButton, "Edit", #selector(editSelected(_:))),
             (removeButton, "Remove", #selector(removeSelected(_:))),
-        ] {
+        ] as [(NSButton, String, Selector)] {
             button.bezelStyle = .rounded
             button.title = title
             button.target = self
@@ -139,6 +145,13 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
             button.translatesAutoresizingMaskIntoConstraints = false
             toolbar.addSubview(button)
         }
+
+        credentialsButton.bezelStyle = .rounded
+        credentialsButton.title = "Credentials…"
+        credentialsButton.target = self
+        credentialsButton.action = #selector(openCredentials(_:))
+        credentialsButton.translatesAutoresizingMaskIntoConstraints = false
+        toolbar.addSubview(credentialsButton)
 
         NSLayoutConstraint.activate([
             modeSegments.topAnchor.constraint(equalTo: content.topAnchor, constant: 10),
@@ -161,13 +174,15 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
             editButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
             removeButton.leadingAnchor.constraint(equalTo: editButton.trailingAnchor, constant: 6),
             removeButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+            credentialsButton.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor, constant: -12),
+            credentialsButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
         ])
     }
 
     @objc private func refresh() {
         let store = ConnectionStore.shared
         if displayMode == .thisWorkspace {
-            folders = store.folders
+            folders = store.folders          // ALL folders — used for cache pruning
             rootConnections = store.rootConnections
             allConnections = []
         } else {
@@ -177,12 +192,12 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
                 $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
             }
         }
-        // Prune cached folder items so we don't carry references to deleted folders.
-        let activeIDs = Set(folders.map { $0.id })
-        folderItems = folderItems.filter { activeIDs.contains($0.key) }
+        // Clear cache so stale/renamed/empty-name stubs don't persist between reloads.
+        folderItems = [:]
         outline.reloadData()
-        for folder in folders {
-            outline.expandItem(folderItem(for: folder.id))
+        // Expand top-level folders; expandChildren: true handles sub-folders recursively.
+        for folder in store.topLevelFolders {
+            outline.expandItem(folderItem(for: folder.id), expandChildren: true)
         }
     }
 
@@ -216,6 +231,39 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
         FolderNameEditor.present(over: window!, existingName: nil) { name in
             ConnectionStore.shared.addFolder(name: name)
         }
+    }
+
+    @objc private func openCredentials(_ sender: Any?) {
+        if credentialsWindowController == nil {
+            credentialsWindowController = CredentialsWindowController()
+        }
+        credentialsWindowController?.showWindow(nil)
+        credentialsWindowController?.window?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func addSubFolder(_ sender: NSMenuItem?) {
+        guard let folder = sender?.representedObject as? ConnectionFolder else { return }
+        FolderNameEditor.present(over: window!, existingName: nil) { name in
+            ConnectionStore.shared.addFolder(name: name, parentID: folder.id)
+        }
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let clickedRow = outline.clickedRow
+        guard clickedRow >= 0,
+              let item = outline.item(atRow: clickedRow) as? RowItem,
+              case .folder(let folder) = item.row else { return }
+        let sub = menu.addItem(withTitle: "New Sub-folder…",
+                               action: #selector(addSubFolder(_:)),
+                               keyEquivalent: "")
+        sub.representedObject = folder
+        sub.target = self
+        menu.addItem(.separator())
+        let rename = menu.addItem(withTitle: "Rename Folder…",
+                                  action: #selector(editSelected(_:)),
+                                  keyEquivalent: "")
+        rename.target = self
     }
 
     @objc private func editSelected(_ sender: Any?) {
@@ -285,11 +333,12 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
         if displayMode == .allConnections {
             return item == nil ? allConnections.count : 0
         }
+        let store = ConnectionStore.shared
         guard let item = item as? RowItem else {
-            return folders.count + rootConnections.count
+            return store.topLevelFolders.count + rootConnections.count
         }
         if case .folder(let f) = item.row {
-            return ConnectionStore.shared.connections(in: f.id).count
+            return store.subFolders(of: f.id).count + store.connections(in: f.id).count
         }
         return 0
     }
@@ -298,14 +347,16 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
         if displayMode == .allConnections {
             return RowItem(.connection(allConnections[index]))
         }
+        let store = ConnectionStore.shared
         if let item = item as? RowItem, case .folder(let f) = item.row {
-            let kids = ConnectionStore.shared.connections(in: f.id)
-            return RowItem(.connection(kids[index]))
+            let subs = store.subFolders(of: f.id)
+            if index < subs.count { return folderItem(for: subs[index].id) }
+            let conns = store.connections(in: f.id)
+            return RowItem(.connection(conns[index - subs.count]))
         }
-        if index < folders.count {
-            return folderItem(for: folders[index].id)
-        }
-        return RowItem(.connection(rootConnections[index - folders.count]))
+        let top = store.topLevelFolders
+        if index < top.count { return folderItem(for: top[index].id) }
+        return RowItem(.connection(rootConnections[index - top.count]))
     }
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
@@ -424,9 +475,11 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
         guard parts.count == 2, let _ = UUID(uuidString: parts[1]) else { return [] }
         let kind = parts[0]
 
-        // Folders can only live at the root level.
+        // Folders can be reordered at root OR nested inside another folder.
+        // Dropping onto itself or a descendant is refused in the store.
         if kind == "folder" {
             if item == nil { return .move }
+            if let target = item as? RowItem, case .folder = target.row { return .move }
             return []
         }
         // Connections may land at the root (item == nil) or inside any folder.
@@ -454,28 +507,35 @@ final class ConnectionsWindowController: NSWindowController, NSWindowDelegate,
         let store = ConnectionStore.shared
 
         if kind == "folder" {
-            // Translate root drop index into a folder slot. AppKit gives us
-            // an index in the parent's child list — folders come first, so
-            // we clamp to [0, folders.count].
-            let folderCount = folders.count
-            let target = max(0, min(folderCount, index == -1 ? folderCount : index))
-            store.moveFolder(uuid, to: target)
+            if item == nil {
+                // Reorder among top-level folders — index is within [topFolders..., rootConns...]
+                let topCount = store.topLevelFolders.count
+                let target = max(0, min(topCount, index == -1 ? topCount : index))
+                store.moveFolder(uuid, toParent: nil, at: target)
+            } else if let targetItem = item as? RowItem,
+                      case .folder(let targetFolder) = targetItem.row {
+                // Nest inside another folder — index is within [subFolders..., conns...]
+                let subsCount = store.subFolders(of: targetFolder.id).count
+                let target = max(0, min(subsCount, index == -1 ? 0 : index))
+                store.moveFolder(uuid, toParent: targetFolder.id, at: target)
+            }
             return true
         }
 
         if kind == "connection" {
             if item == nil {
-                // Dropped at root. Root children are [folders..., rootConnections...]
-                // so the per-group index is `proposedChildIndex - folders.count`.
-                let folderCount = folders.count
-                let raw = index == -1 ? rootConnections.count : (index - folderCount)
+                // Dropped at root. Root children are [topFolders..., rootConnections...]
+                let topCount = store.topLevelFolders.count
+                let raw = index == -1 ? rootConnections.count : (index - topCount)
                 let target = max(0, raw)
                 store.moveConnection(uuid, toFolder: nil, at: target)
                 return true
             }
-            if let target = item as? RowItem, case .folder(let folder) = target.row {
-                let target = max(0, index == -1 ? 0 : index)
-                store.moveConnection(uuid, toFolder: folder.id, at: target)
+            if let targetItem = item as? RowItem, case .folder(let folder) = targetItem.row {
+                // index is within [subFolders..., conns...] — shift past sub-folder slots
+                let subCount = store.subFolders(of: folder.id).count
+                let raw = index == -1 ? 0 : max(0, index - subCount)
+                store.moveConnection(uuid, toFolder: folder.id, at: raw)
                 return true
             }
         }
@@ -505,6 +565,11 @@ final class ConnectionEditor: NSObject {
     /// Tracks `(workspaceID, checkbox)` pairs in display order so save
     /// can collect the user's selection back into a `Set<UUID>`.
     private var workspaceCheckboxes: [(UUID, NSButton)] = []
+    private let isJumphostCheckbox = NSButton(checkboxWithTitle: "Jumphost",
+                                              target: nil, action: nil)
+    private let jumphostPicker = NSPopUpButton(frame: .zero, pullsDown: false)
+    private var jumphostPickerRow: NSStackView?
+    private let credentialPicker = NSPopUpButton(frame: .zero, pullsDown: false)
 
     private let existing: SavedConnection?
     /// Completion gets the edited connection plus the new set of
@@ -544,14 +609,30 @@ final class ConnectionEditor: NSObject {
         Self.row(stack, label: "Host", field: hostField, value: existing?.host ?? "")
         Self.row(stack, label: "Port", field: portField, value: String(existing?.port ?? 22))
         Self.row(stack, label: "Identity file", field: identityField, value: existing?.identityFile ?? "")
+        configureCredentialPicker(currentID: existing?.credentialID)
+        Self.popupRow(stack, label: "Credential", popup: credentialPicker)
         configureFolderPopup(currentID: existing?.folderID)
         Self.popupRow(stack, label: "Folder", popup: folderPopup)
+
+        // "Jumphost" checkbox — marks THIS connection as available to be
+        // selected as a jumphost by other connections.
+        isJumphostCheckbox.state = (existing?.isJumphost == true) ? .on : .off
+        let isJHRow = NSStackView()
+        isJHRow.orientation = .horizontal
+        isJHRow.spacing = 8
+        isJHRow.alignment = .centerY
+        let isJHSpacer = NSView()
+        isJHSpacer.translatesAutoresizingMaskIntoConstraints = false
+        isJHSpacer.widthAnchor.constraint(equalToConstant: 100).isActive = true
+        isJHRow.addArrangedSubview(isJHSpacer)
+        isJHRow.addArrangedSubview(isJumphostCheckbox)
+        stack.addArrangedSubview(isJHRow)
 
         // "Use jumphost" checkbox — sits flush with the field column so it
         // visually anchors to the bastion-related rows below it.
         jumphostCheckbox.target = self
         jumphostCheckbox.action = #selector(jumphostToggled(_:))
-        let usesJump = (existing?.jumpHost?.isEmpty == false)
+        let usesJump = (existing?.jumpHost?.isEmpty == false) || existing?.jumphostConnectionID != nil
         jumphostCheckbox.state = usesJump ? .on : .off
         let cbRow = NSStackView()
         cbRow.orientation = .horizontal
@@ -563,6 +644,14 @@ final class ConnectionEditor: NSObject {
         cbRow.addArrangedSubview(spacer)
         cbRow.addArrangedSubview(jumphostCheckbox)
         stack.addArrangedSubview(cbRow)
+
+        // Picker to select a saved jumphost connection, or "Custom…" to
+        // fall back to the manual jump user/host/port fields below.
+        jumphostPicker.target = self
+        jumphostPicker.action = #selector(jumphostPickerChanged(_:))
+        configureJumphostPicker(currentID: existing?.jumphostConnectionID,
+                                hasManualJump: existing?.jumpHost?.isEmpty == false)
+        jumphostPickerRow = Self.popupRow(stack, label: "Jump via", popup: jumphostPicker)
 
         let juRow = Self.row(stack, label: "Jump user", field: jumpUserField,
                              value: existing?.jumpUser ?? "")
@@ -591,7 +680,7 @@ final class ConnectionEditor: NSObject {
         // resize the alert window — empty space below when off is fine.
         // Bumped to fit the workspaces picker too.
         let perWorkspaceRow: CGFloat = 22
-        let baseHeight: CGFloat = 360
+        let baseHeight: CGFloat = 450
         let extra = CGFloat(max(0, WorkspaceStore.shared.workspaces.count - 1)) * perWorkspaceRow
         stack.frame = NSRect(x: 0, y: 0, width: 380, height: baseHeight + extra)
         alert.accessoryView = stack
@@ -608,24 +697,44 @@ final class ConnectionEditor: NSObject {
             connection.port = port
             let identity = identityField.stringValue.trimmingCharacters(in: .whitespaces)
             connection.identityFile = identity.isEmpty ? nil : identity
+            connection.credentialID = credentialPicker.selectedItem?.representedObject as? UUID
             connection.folderID = folderPopup.selectedItem?.representedObject as? UUID
+            connection.isJumphost = isJumphostCheckbox.state == .on
 
             if jumphostCheckbox.state == .on {
-                let jh = jumpHostField.stringValue.trimmingCharacters(in: .whitespaces)
-                let ju = jumpUserField.stringValue.trimmingCharacters(in: .whitespaces)
-                let jp = Int(jumpPortField.stringValue.trimmingCharacters(in: .whitespaces))
-                // Only persist a jump config when both host and user are
-                // filled — without either the `-J` arg is invalid.
-                if !jh.isEmpty, !ju.isEmpty {
-                    connection.jumpHost = jh
-                    connection.jumpUser = ju
-                    connection.jumpPort = jp
+                let isCustom = (jumphostPicker.selectedItem?.representedObject as? String) == "custom"
+                if isCustom {
+                    let jh = jumpHostField.stringValue.trimmingCharacters(in: .whitespaces)
+                    let ju = jumpUserField.stringValue.trimmingCharacters(in: .whitespaces)
+                    let jp = Int(jumpPortField.stringValue.trimmingCharacters(in: .whitespaces))
+                    if !jh.isEmpty, !ju.isEmpty {
+                        connection.jumpHost = jh
+                        connection.jumpUser = ju
+                        connection.jumpPort = jp
+                        connection.jumphostConnectionID = nil
+                    } else {
+                        connection.jumpHost = nil
+                        connection.jumpUser = nil
+                        connection.jumpPort = nil
+                        connection.jumphostConnectionID = nil
+                    }
+                } else if let pickedID = jumphostPicker.selectedItem?.representedObject as? UUID,
+                          let jc = ConnectionStore.shared.allConnections.first(where: { $0.id == pickedID }) {
+                    // Snapshot the jumphost's details so sshCommand works
+                    // without a live lookup. If the jumphost is later
+                    // edited, re-save this connection to pick up changes.
+                    connection.jumphostConnectionID = pickedID
+                    connection.jumpHost = jc.host
+                    connection.jumpUser = jc.user
+                    connection.jumpPort = jc.port == 22 ? nil : jc.port
                 } else {
+                    connection.jumphostConnectionID = nil
                     connection.jumpHost = nil
                     connection.jumpUser = nil
                     connection.jumpPort = nil
                 }
             } else {
+                connection.jumphostConnectionID = nil
                 connection.jumpHost = nil
                 connection.jumpUser = nil
                 connection.jumpPort = nil
@@ -704,18 +813,84 @@ final class ConnectionEditor: NSObject {
         applyJumphostVisibility()
     }
 
+    @objc private func jumphostPickerChanged(_ sender: NSPopUpButton) {
+        applyJumphostVisibility()
+    }
+
+    private func configureJumphostPicker(currentID: UUID?, hasManualJump: Bool) {
+        jumphostPicker.removeAllItems()
+        let jumphosts = ConnectionStore.shared.allConnections
+            .filter { $0.isJumphost && $0.id != existing?.id }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        for jh in jumphosts {
+            jumphostPicker.addItem(withTitle: jh.displayName)
+            jumphostPicker.lastItem?.representedObject = jh.id
+        }
+        if !jumphosts.isEmpty {
+            jumphostPicker.menu?.addItem(NSMenuItem.separator())
+        }
+        jumphostPicker.addItem(withTitle: "Custom…")
+        jumphostPicker.lastItem?.representedObject = "custom"
+
+        if let currentID,
+           let idx = jumphostPicker.itemArray.firstIndex(where: {
+               ($0.representedObject as? UUID) == currentID
+           }) {
+            jumphostPicker.selectItem(at: idx)
+        } else if hasManualJump || jumphosts.isEmpty {
+            selectCustomInPicker()
+        }
+    }
+
+    private func selectCustomInPicker() {
+        if let idx = jumphostPicker.itemArray.firstIndex(where: {
+            ($0.representedObject as? String) == "custom"
+        }) {
+            jumphostPicker.selectItem(at: idx)
+        }
+    }
+
     private func applyJumphostVisibility() {
         let on = jumphostCheckbox.state == .on
-        for row in jumpRows { row.isHidden = !on }
+        let isCustom = (jumphostPicker.selectedItem?.representedObject as? String) == "custom"
+        jumphostPickerRow?.isHidden = !on
+        for row in jumpRows { row.isHidden = !(on && isCustom) }
+    }
+
+    private func configureCredentialPicker(currentID: UUID?) {
+        credentialPicker.removeAllItems()
+        credentialPicker.addItem(withTitle: "None")
+        let creds = CredentialStore.shared.credentials
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        for cred in creds {
+            credentialPicker.addItem(withTitle: cred.name.isEmpty ? cred.user : cred.name)
+            credentialPicker.lastItem?.representedObject = cred.id
+        }
+        if let currentID,
+           let idx = credentialPicker.itemArray.firstIndex(where: {
+               ($0.representedObject as? UUID) == currentID
+           }) {
+            credentialPicker.selectItem(at: idx)
+        } else {
+            credentialPicker.selectItem(at: 0)
+        }
     }
 
     private func configureFolderPopup(currentID: UUID?) {
         folderPopup.removeAllItems()
         folderPopup.addItem(withTitle: "(no folder)")
-        for folder in ConnectionStore.shared.folders {
-            folderPopup.addItem(withTitle: folder.name.isEmpty ? "Untitled" : folder.name)
-            folderPopup.lastItem?.representedObject = folder.id
+        // Add folders recursively so sub-folders appear indented under their parent.
+        let allFolders = ConnectionStore.shared.folders
+        func addFolders(parentID: UUID?, prefix: String) {
+            let children = allFolders.filter { $0.parentID == parentID }
+            for folder in children {
+                let label = prefix + (folder.name.isEmpty ? "Untitled" : folder.name)
+                folderPopup.addItem(withTitle: label)
+                folderPopup.lastItem?.representedObject = folder.id
+                addFolders(parentID: folder.id, prefix: prefix + "  ")
+            }
         }
+        addFolders(parentID: nil, prefix: "")
         if let currentID,
            let match = folderPopup.itemArray.firstIndex(where: {
                ($0.representedObject as? UUID) == currentID

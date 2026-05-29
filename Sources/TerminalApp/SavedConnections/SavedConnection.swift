@@ -24,6 +24,17 @@ struct SavedConnection: Identifiable, Codable, Hashable {
     var jumpUser: String?
     var jumpPort: Int?
 
+    /// When true, other connections can select this connection as their jumphost.
+    var isJumphost: Bool = false
+    /// References a saved connection (by ID) to use as the ProxyJump host.
+    /// When set, takes precedence over the manual `jumpHost`/`jumpUser`/`jumpPort`.
+    var jumphostConnectionID: UUID?
+    /// References a `SavedCredential` (by ID) that provides user, identity
+    /// file, and optional Keychain password for this connection. When set,
+    /// the credential's values override the connection's own `user` and
+    /// `identityFile` at launch time.
+    var credentialID: UUID?
+
     /// What we show in the Quick Connect palette and tab title.
     var displayName: String {
         name.isEmpty ? "\(user)@\(host)" : name
@@ -60,6 +71,19 @@ struct SavedConnection: Identifiable, Codable, Hashable {
         return parts.joined(separator: " ")
     }
 
+    /// Build the SSH command, applying a credential's user and identity file
+    /// on top of the connection's own settings. Use this at session-launch time
+    /// when `credentialID` is set.
+    func sshCommand(with credential: SavedCredential?) -> String {
+        guard let credential else { return sshCommand }
+        var copy = self
+        copy.user = credential.user
+        if let identity = credential.identityFile, !identity.isEmpty {
+            copy.identityFile = identity
+        }
+        return copy.sshCommand
+    }
+
     private func expandedIdentity(_ path: String) -> String {
         (path as NSString).expandingTildeInPath
     }
@@ -70,6 +94,9 @@ struct SavedConnection: Identifiable, Codable, Hashable {
 struct ConnectionFolder: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
     var name: String
+    /// `nil` = top-level folder; otherwise the id of the parent folder.
+    /// Defaults to `nil` so existing stored JSON deserialises cleanly.
+    var parentID: UUID? = nil
 }
 
 /// Per-workspace placement record for one connection. A connection that

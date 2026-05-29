@@ -102,9 +102,16 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, TabB
         // trailing edge gives the surface a clean visual boundary.
         sidebar.translatesAutoresizingMaskIntoConstraints = false
         sidebar.isHidden = true
+        sidebar.hostWindow = window
         sidebar.onPick = { [weak self] connection in
             guard let self else { return }
-            self.addNewSession(title: connection.displayName, command: connection.sshCommand)
+            let credential = connection.credentialID.flatMap {
+                CredentialStore.shared.credential(id: $0)
+            }
+            let command = CredentialStore.applyPasswordInjection(
+                to: connection.sshCommand(with: credential),
+                connection: connection)
+            self.addNewSession(title: connection.displayName, command: command)
         }
         sidebar.onManageConnections = {
             // Route through the responder chain rather than casting
