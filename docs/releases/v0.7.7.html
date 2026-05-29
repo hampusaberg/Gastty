@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gastty v0.7.7</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ffffff;
+      --text: #1d1d1f;
+      --secondary: #6e6e73;
+      --code-bg: #f0f0f0;
+      --pre-bg: #f5f5f7;
+      --link: #0066cc;
+      --rule: #e5e5ea;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1c1c1e;
+        --text: #f2f2f7;
+        --secondary: #98989d;
+        --code-bg: #2c2c2e;
+        --pre-bg: #2c2c2e;
+        --link: #6ea3ff;
+        --rule: #38383a;
+      }
+    }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+    body {
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 18px 22px;
+    }
+    .tag-header { color: var(--secondary); font-size: 0.85em; margin-bottom: 0.4em; }
+    h1, h2, h3 { font-weight: 600; line-height: 1.25; margin: 1.2em 0 0.35em; }
+    h1 { font-size: 1.4em; margin-top: 0; }
+    h2 { font-size: 1.15em; }
+    h3 { font-size: 1.05em; }
+    p { margin: 0.5em 0; }
+    ul, ol { margin: 0.3em 0 0.7em 1.4em; padding: 0; }
+    li { margin: 0.15em 0; }
+    a { color: var(--link); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: var(--code-bg);
+      padding: 0.1em 0.35em;
+      border-radius: 3px;
+    }
+    pre {
+      background: var(--pre-bg);
+      padding: 0.7em 0.9em;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 0.7em 0;
+    }
+    pre code { background: transparent; padding: 0; font-size: 0.85em; }
+    blockquote {
+      margin: 0.5em 0;
+      padding: 0 0.8em;
+      border-left: 3px solid var(--rule);
+      color: var(--secondary);
+    }
+    hr { border: none; border-top: 1px solid var(--rule); margin: 1em 0; }
+    table { border-collapse: collapse; margin: 0.7em 0; }
+    th, td { padding: 0.35em 0.7em; border: 1px solid var(--rule); }
+    img { max-width: 100%; }
+  </style>
+</head>
+<body>
+  <div class="tag-header">Gastty v0.7.7</div>
+  <h2>What's new</h2>
+<ul>
+<li><strong>Saved credentials with macOS Keychain.</strong> Reusable SSH credentials (username + optional identity file + optional password) that you can attach to any saved connection by reference. Passwords live exclusively in the macOS Keychain (<code class="notranslate">kSecClassGenericPassword</code>), never in JSON. New <strong>Connections → Credentials…</strong> toolbar opens a table-style editor for managing them; the Connection editor gains a <strong>Credential</strong> picker row.</li>
+<li><strong>Right-click on connections in the sidebar to Edit or Remove.</strong> No more roundtrip through the Connections window for a quick rename or delete.</li>
+<li><strong>Automatic SSH password injection.</strong> When a credential has a stored Keychain password, sessions launch with <code class="notranslate">SSH_ASKPASS_REQUIRE=force</code> and a temporary mode-700 helper script — your password is fed to OpenSSH without an interactive prompt, even through a jumphost. The helper is deleted after 60 seconds.</li>
+</ul>
+<p>Thanks <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/tomas-openinfra/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/tomas-openinfra">@tomas-openinfra</a>  for the PR.</p>
+</body>
+</html>
