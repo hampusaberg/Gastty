@@ -65,7 +65,11 @@ struct SavedConnection: Identifiable, Codable, Hashable {
             if let jumpPort, jumpPort != 22 {
                 spec += ":\(jumpPort)"
             }
-            parts += ["-J", spec]
+            // -t forces PTY allocation on the target. Without it, some SSH
+            // server configurations don't put the remote PTY in raw mode
+            // when the connection is tunnelled via ProxyJump, which breaks
+            // paste (and can cause other terminal-mode oddities).
+            parts += ["-t", "-J", spec]
         }
         parts.append("\(user)@\(host)")
         return parts.joined(separator: " ")
