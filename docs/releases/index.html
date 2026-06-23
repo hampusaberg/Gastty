@@ -83,6 +83,15 @@
 </head>
 <body>
   <div class="page-header">Gastty — All Releases</div>
+  <section class="release" id="0-7-9">
+    <div class="release-tag">v0.7.9<span class="pub-date">Tue, 23 Jun 2026</span></div>
+    <h1 class="release-title">v0.7.9</h1>
+    <h2>Fixes</h2>
+<ul>
+<li><strong>SSH connections no longer die silently after idle periods.</strong> Saved connections launched from the sidebar, Quick Connect, or the Connections window now pass <code class="notranslate">ServerAliveInterval=60</code> and <code class="notranslate">ServerAliveCountMax=3</code> to OpenSSH — a tiny encrypted ping every 60 seconds keeps NAT/firewall mappings open so a left-open SSH session survives lunch, meetings, or overnight without "Write failed: Broken pipe". Industry-standard values (what Warp, SecureCRT, and most modern SSH clients ship by default). Direct sessions, ProxyJump tunnels, and credential-driven sessions all get the same treatment.</li>
+</ul>
+<p>If you also launch SSH from the shell directly (<code class="notranslate">ssh foo</code>, <code class="notranslate">git push</code>, <code class="notranslate">scp</code>), add a <code class="notranslate">Host *</code> block to <code class="notranslate">~/.ssh/config</code> with the same options to get the same protection there.</p>
+  </section>
   <section class="release" id="0-7-8">
     <div class="release-tag">v0.7.8<span class="pub-date">Fri, 29 May 2026</span></div>
     <h1 class="release-title">v0.7.8</h1>
