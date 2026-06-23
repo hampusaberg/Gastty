@@ -52,6 +52,21 @@ struct SavedConnection: Identifiable, Codable, Hashable {
     /// jumphost tunnel. Prefixing with `env` puts argv[0] back to `ssh`.
     var sshCommand: String {
         var parts: [String] = ["env", "ssh"]
+        // Keep idle connections alive — without these, a NAT/firewall on
+        // the path (home router, corporate gateway, mobile carrier) will
+        // silently drop the TCP flow after a few minutes of inactivity
+        // and the next keystroke surfaces as "Write failed: Broken pipe".
+        // ServerAliveInterval=60 sends a tiny encrypted ping every 60s if
+        // nothing's been received; ServerAliveCountMax=3 gives up after
+        // three unanswered pings (~3 min of true silence) and reports a
+        // dead connection cleanly instead of the TCP stack waiting 15+
+        // min on its own. Industry-standard values — what Warp,
+        // SecureCRT, and most modern SSH clients ship by default.
+        // `-o` here takes precedence over the user's ~/.ssh/config; if
+        // someone has stronger reasons to set their own values they can
+        // still override per-host in ssh_config with `Match exec` rules,
+        // but the default just-works case wins.
+        parts += ["-o", "ServerAliveInterval=60", "-o", "ServerAliveCountMax=3"]
         if port != 22 { parts += ["-p", String(port)] }
         if let identityFile, !identityFile.isEmpty {
             parts += ["-i", expandedIdentity(identityFile)]
