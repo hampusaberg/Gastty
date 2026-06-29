@@ -147,6 +147,13 @@ final class ShortcutRegistry {
         .init(id: "zoomReset",        menuTitle: "Actual Size",
               default: .init(key: "0", mods: [.command]),
               category: "View"),
+        // No default shortcut — leaves the slot open for users to
+        // assign whatever fits their muscle memory. Common picks are
+        // ⌥⌘R or ⌘⇧K (Terminal.app uses ⌘K for the same idea, but
+        // we've already given ⌘K to Quick Connect).
+        .init(id: "resetTerminal",    menuTitle: "Reset Terminal",
+              default: .unbound,
+              category: "View"),
     ]
 
     /// Override map keyed by entry id. Empty by default.

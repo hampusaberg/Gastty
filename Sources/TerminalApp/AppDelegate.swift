@@ -633,6 +633,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         quickConnectPanel?.present()
     }
 
+    /// Inject `reset\n` into the focused surface. Use case: a TUI that
+    /// enabled some terminal mode (mouse reporting, alt-screen, raw
+    /// input) died ungracefully without sending the matching disable
+    /// sequence. The terminal is now stuck — mouse moves leak as
+    /// `ESC[<35;2;32M`-style escape garbage, scroll does nothing, etc.
+    ///
+    /// Sending the bytes via `ghostty_surface_text` makes the shell
+    /// see them as typed input, so `reset` runs in the shell and
+    /// emits the full `ESC c` reset sequence that libghostty's
+    /// parser interprets to clear every mode flag back to defaults.
+    /// Cheaper than wrapping libghostty's internal reset API and
+    /// matches what an experienced user would do by hand.
+    @objc func resetActiveTerminal(_ sender: Any?) {
+        conflictDetector.noteActionFired(for: "resetTerminal")
+        guard let controller = currentTerminalController(),
+              let surface = controller.tabBar.activeSession?.activeSurface.surface else { return }
+        let bytes = "reset\n"
+        bytes.withCString { ptr in
+            ghostty_surface_text(surface, ptr, UInt(strlen(ptr)))
+        }
+    }
+
     func openConnection(_ connection: SavedConnection) {
         // Open in the current window as a new tab, or a new window if none.
         let controller = currentTerminalController() ?? {
@@ -774,6 +796,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addRegistryItem(to: viewMenu, id: "zoomReset",
                         action: #selector(SurfaceHostView.zoomReset(_:)),
                         target: nil)
+        viewMenu.addItem(.separator())
+        addRegistryItem(to: viewMenu, id: "resetTerminal",
+                        action: #selector(resetActiveTerminal(_:)))
 
         // ---- Window
         let windowItem = NSMenuItem(); main.addItem(windowItem)
